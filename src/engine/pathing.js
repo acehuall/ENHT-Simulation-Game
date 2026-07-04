@@ -20,11 +20,11 @@ function samplePath(L,time,oneWay){
   for(var n=0;n<L.ev.length;n++){
     var e=L.ev[n];
     if(t>=e.t0&&t<e.t1){
-      if(e.kind==='pause') return {x:e.at[0],y:e.at[1],dx:0,dy:1,moving:false,idx:e.idx};
+      if(e.kind==='pause') return {x:e.at[0],y:e.at[1],dx:0,dy:1,moving:false,idx:e.idx,eventIndex:n,cycleTime:t};
       var p=(t-e.t0)/(e.t1-e.t0);
       return {x:e.from[0]+(e.to[0]-e.from[0])*p, y:e.from[1]+(e.to[1]-e.from[1])*p,
-              dx:Math.sign(e.to[0]-e.from[0]), dy:Math.sign(e.to[1]-e.from[1]), moving:true, idx:-1};
+              dx:Math.sign(e.to[0]-e.from[0]), dy:Math.sign(e.to[1]-e.from[1]), moving:true, idx:-1,eventIndex:n,cycleTime:t};
     }
   }
-  return {x:L.end[0],y:L.end[1],dx:0,dy:1,moving:false,idx:-1};
+  return {x:L.end[0],y:L.end[1],dx:0,dy:1,moving:false,idx:-1,eventIndex:L.ev.length-1,cycleTime:t};
 }

@@ -27,6 +27,16 @@ function setScene(scene){
   }
 }
 
+function syncQuarterControls(){
+  var quarterEvent=getCurrentQuarterEvent();
+  var sel=$('quarterSelect');
+  if(sel) sel.value=getCurrentQuarterId();
+  $('quarterChip').textContent=quarterEvent.displayName;
+  $('quarterTrackLabel').textContent=quarterEvent.label;
+  $('bannerQuarter').innerHTML=quarterEvent.label+' &middot; '+quarterEvent.bannerLine+'<br><b>the board has decided: AGENCY COVER</b>';
+  $('metricTrendCaption').textContent='BOARD METRIC TREND - '+quarterEvent.label;
+}
+
 $('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
 $('btnRestart').onclick=function(){ seekSimulation(0); paused=false; setScene('simulation'); syncPauseButton(); };
 $('btnFs').onclick=function(){
@@ -43,4 +53,12 @@ scrub.oninput=function(){ seekSimulation(this.value); setScene('simulation'); };
 
 $('btnPrevScene').onclick=function(){ setScene('simulation'); };
 $('btnNextScene').onclick=function(){ setScene('boardRoom'); };
+
+$('quarterSelect').onchange=function(){
+  setCurrentQuarter(this.value);
+  syncQuarterControls();
+  render();
+};
+
+syncQuarterControls();
 setScene('simulation');

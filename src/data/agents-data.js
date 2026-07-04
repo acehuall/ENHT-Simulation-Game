@@ -3,7 +3,7 @@ var AGENTS=[
  {role:'porter',   L:buildLoop([[2,8],[12,8],[12,7],[27,7]], {0:2.2,3:2.2}, SPEED)},
  {role:'nurse',    L:buildLoop([[23,4],[23,7],[7,7],[7,13]], {0:2.6,3:3.2}, SPEED), heartIdx:3, heartAt:[7,14]},
  {role:'doctor',   L:buildLoop([[23,10],[23,7],[8,7],[8,4]], {0:2.4,3:2.6}, SPEED)},
- {role:'patient',  L:buildLoop([[14,15],[14,9],[16,9],[16,8],[19,8],[19,12]], {0:2.0,1:1.6,5:4.0}, SPEED)},
+ {role:'patient',  L:buildLoop([[14,15],[14,9],[16,9],[16,8],[19,8],[19,12],[19,8],[7,8],[7,13]], {0:2.0,1:1.6,5:4.0,8:4.0}, SPEED), treatmentIdx:8},
  {role:'agency',   L:buildLoop([[14,15],[14,9],[16,9],[16,7],[23,7],[23,4]], {}, 2.4, true), startAt:18, oneWay:true},
  {role:'reception',fixed:[14,7]},
  {role:'sitter',   fixed:[20,12], seated:true}

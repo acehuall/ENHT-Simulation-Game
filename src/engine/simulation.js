@@ -18,6 +18,8 @@ function render(){
   var m=simT%6.5;
   if((m>5.9&&m<6.05)||(m>6.2&&m<6.28)){ ctx.fillStyle='rgba(6,10,16,0.75)'; ctx.fillRect(406,516,26,22); }
 
+  drawQuarterVisualNpcs(clock);
+
   /* agents */
   for(var n=0;n<AGENTS.length;n++){
     var a=AGENTS[n];
@@ -25,7 +27,8 @@ function render(){
     if(a.startAt!=null && simT<a.startAt) continue;
     var time=(a.startAt!=null)? simT-a.startAt : clock;
     var p=samplePath(a.L,time,a.oneWay);
-    drawAgent(a.role,p.x,p.y,p.dx,p.dy,p.moving,clock,false);
+    var visualState=a.role==='patient' ? getPatientVisualState(a,p,simT,time) : null;
+    drawAgent(a.role,p.x,p.y,p.dx,p.dy,p.moving,clock,false,visualState);
     if(a.heartIdx!=null && p.idx===a.heartIdx){
       var ph=(clock*1.1)%1;
       ctx.globalAlpha=1-ph;

@@ -2,6 +2,7 @@
 /* ---------- game state foundation ---------- */
 var GAME = {
   currentQuarterIndex: 0,
+  currentQuarterId: 'Q1',
   screen: 'simulation',
   selectedOptionId: null,
   lastOutcome: null,
@@ -31,6 +32,21 @@ function getCurrentQuarter(){
   return QUARTERS[GAME.currentQuarterIndex];
 }
 
+function getCurrentQuarterId(){
+  return GAME.currentQuarterId || 'Q1';
+}
+
+function getCurrentQuarterEvent(){
+  return getQuarterEventConfig(getCurrentQuarterId());
+}
+
+function setCurrentQuarter(quarterId){
+  var idx=QUARTER_EVENT_IDS.indexOf(quarterId);
+  if(idx<0) return;
+  GAME.currentQuarterId=quarterId;
+  GAME.currentQuarterIndex=Math.min(idx, QUARTERS.length-1);
+}
+
 function getCurrentStats(){
   return cloneStats(GAME.stats);
 }
@@ -41,6 +57,7 @@ function setGameScreen(screenName){
 
 function resetGameState(){
   GAME.currentQuarterIndex = 0;
+  GAME.currentQuarterId = 'Q1';
   GAME.screen = 'simulation';
   GAME.selectedOptionId = null;
   GAME.lastOutcome = null;

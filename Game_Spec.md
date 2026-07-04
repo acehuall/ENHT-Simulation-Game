@@ -1,4 +1,4 @@
-# TRUST IN BALANCE
+# ENHT Simulation Game
 ## Full Game Specification — v1.0
 
 *A board-level decision simulation for NHS work experience students.*

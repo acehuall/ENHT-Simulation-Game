@@ -33,7 +33,7 @@ function _chartTime(sec){ return '0:'+('0'+Math.floor(sec)).slice(-2); }
 
 function drawStatsChart(){
   var W=statsChart.width, H=statsChart.height;      /* 220 x 120 */
-  var left=22, right=W-6, top=16, bottom=H-18;
+  var left=22, right=W-6, top=10, bottom=H-18;
   var plotW=right-left, plotH=bottom-top;
 
   /* background */
@@ -89,12 +89,4 @@ function drawStatsChart(){
   scc.textAlign='left';  scc.fillText(_chartTime(0),left,bottom+3);
   scc.textAlign='right'; scc.fillText(_chartTime(QLEN),right,bottom+3);
 
-  /* small legend across the top */
-  scc.textBaseline='middle'; scc.textAlign='left';
-  var lx2=6, ly2=8;
-  for(var c=0;c<CHART_SERIES.length;c++){
-    var ck=CHART_SERIES[c].key, cl=CHART_SERIES[c].label;
-    scc.fillStyle=CHART_COLORS[ck]; scc.fillRect(lx2,ly2-2,5,5); lx2+=8;
-    scc.fillStyle='#8b94ab'; scc.fillText(cl,lx2,ly2); lx2+=cl.length*5+7;
-  }
 }

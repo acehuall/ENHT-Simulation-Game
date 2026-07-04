@@ -40,6 +40,17 @@
 
 .chartbox{border:2px solid var(--line); background:#0a0c13; padding:4px; margin-top:6px;}
 .chartbox canvas{width:100%; height:auto; display:block; image-rendering:pixelated;}
+.chartlegend{
+  display:flex; flex-wrap:wrap; gap:5px 9px; align-items:center;
+  padding:1px 0 5px; color:var(--dim); font-size:10px; letter-spacing:2px; line-height:1.2;
+}
+.chartlegend span{display:inline-flex; align-items:center; gap:4px; white-space:nowrap;}
+.chartlegend i{width:6px; height:6px; display:inline-block; flex:0 0 6px;}
+.chartlegend-waiting{background:var(--amber);}
+.chartlegend-patsat{background:var(--green);}
+.chartlegend-morale{background:var(--teal);}
+.chartlegend-safety{background:var(--red);}
+.chartlegend-rep{background:#c3cade;}
 
 .btn{background:#1a2030; border:2px solid #333c58; color:#cdd5e6; padding:6px 12px;
      font-family:inherit; font-size:11px; letter-spacing:1px; text-transform:uppercase; cursor:pointer;}

@@ -1,6 +1,20 @@
 'use strict';
+/* quarter close lingers 5s on the QUARTER CLOSED stamp before the boardroom */
+var boardRoomTimer=null;
+function scheduleBoardRoom(){
+  cancelBoardRoom();
+  boardRoomTimer=setTimeout(function(){
+    boardRoomTimer=null;
+    setScene('boardRoom');
+  },5000);
+}
+function cancelBoardRoom(){
+  if(boardRoomTimer){ clearTimeout(boardRoomTimer); boardRoomTimer=null; }
+}
+
 function seekSimulation(t){
   var target=clamp(Number(t)||0,0,QLEN);
+  cancelBoardRoom();
   clock=target;
   prevSimT=target;
   quarterComplete=target>=QLEN;

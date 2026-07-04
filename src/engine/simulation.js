@@ -105,7 +105,7 @@ function frame(now){
       quarterComplete=true;
       paused=true;
       if(typeof syncPauseButton==='function') syncPauseButton();
-      if(typeof setScene==='function') setScene('boardRoom');
+      if(typeof scheduleBoardRoom==='function') scheduleBoardRoom();
     }
   }
   render();

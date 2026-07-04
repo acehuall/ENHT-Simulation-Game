@@ -29,6 +29,14 @@
 }
 .showBoardRoom #boardRoom{opacity:1; pointer-events:auto;}
 
+#btnReadReport{
+  position:absolute; left:50%; bottom:12%; transform:translateX(-50%);
+  font-size:13px; padding:12px 22px; letter-spacing:2px;
+  background:rgba(9,11,19,.88); border:2px solid var(--teal); color:var(--teal);
+  box-shadow:4px 4px 0 #05070c;
+}
+#btnReadReport:hover{background:var(--teal); color:#06231f;}
+
 #toast{position:absolute; left:10px; bottom:10px; pointer-events:none; opacity:0;
        background:rgba(9,11,19,.88); border:2px solid var(--line); border-left:4px solid var(--amber);
        padding:6px 10px; font-size:11px; letter-spacing:1px; transition:opacity .2s; line-height:1.4;}

@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="src/css/base.css">
 <link rel="stylesheet" href="src/css/layout.css">
 <link rel="stylesheet" href="src/css/ui.css">
+<link rel="stylesheet" href="src/report/round-end-report.css">
 </head>
 <body>
 <div class="wrap">
@@ -27,13 +28,14 @@
           <canvas id="cv" width="960" height="544"></canvas>
           <div id="boardRoom" aria-hidden="true">
             <img src="src/Assets/BoardRoom Image.png" alt="">
+            <button class="btn" id="btnReadReport">&#128196; READ REPORT</button>
           </div>
           <div id="labels"></div>
           <div id="scan"></div>
           <div id="toast"></div>
           <div id="banner">
             <div class="bar"></div>
-            <div class="mid"><div>Q1 &middot; WINTER PRESSURE<br><b>the board has decided: AGENCY COVER</b></div></div>
+            <div class="mid"><div id="bannerMsg">Q1 &middot; WINTER PRESSURE<br><b>THE QUARTER BEGINS</b></div></div>
             <div class="bar"></div>
           </div>
           <div id="dim"></div>
@@ -99,6 +101,9 @@
   </details>
 
 </div>
+
+<div id="repRoot" class="rep-root" hidden></div>
+
 <script src="src/data/map-data.js"></script>
 <script src="src/engine/canvas.js"></script>
 <script src="src/engine/map-renderer.js"></script>
@@ -118,6 +123,7 @@
 <script src="src/ui/telemetry.js"></script>
 <script src="src/ui/stats-chart.js"></script>
 <script src="src/engine/simulation.js"></script>
+<script src="src/report/round-end-report.js"></script>
 <script src="src/main.js"></script>
 </body>
 </html>

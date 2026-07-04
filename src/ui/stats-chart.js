@@ -61,15 +61,6 @@ function drawStatsChart(){
     scc.fillText(_chartMonth(mo),mx,bottom+3);
   }
 
-  /* subtle event markers (norovirus / agency / incident) */
-  if(typeof STAT_EVENTS!=='undefined'){
-    scc.fillStyle='rgba(233,180,76,0.20)';
-    for(var e=0;e<STAT_EVENTS.length;e++){
-      var ex=Math.round(left+(STAT_EVENTS[e].t/QLEN)*plotW);
-      scc.fillRect(ex,top,1,plotH);
-    }
-  }
-
   /* one line per series, straight from the stored history */
   var hist=getMetricHistory();
   for(var s=0;s<CHART_SERIES.length;s++){

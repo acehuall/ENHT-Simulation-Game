@@ -54,6 +54,7 @@
 }
 
 .rep-root .rep-foot{
+  position:relative; z-index:80;
   width:min(1060px, 96vw); display:flex; align-items:center; gap:14px; padding-top:10px;
 }
 .rep-root .btn{

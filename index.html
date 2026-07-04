@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Northbrook General — Tilemap Demo</title>
+<link rel="stylesheet" href="src/css/base.css">
+<link rel="stylesheet" href="src/css/layout.css">
+<link rel="stylesheet" href="src/css/ui.css">
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="nsq">N</div>
+    <div>
+      <h1>NORTHBROOK GENERAL HOSPITAL</h1>
+      <div class="sub">TRUST IN BALANCE — SIMULATION VIEW (PHASE B MOCK)</div>
+    </div>
+    <div class="chip">Q1 · WINTER PRESSURE</div>
+  </div>
+
+  <div class="stage">
+    <div class="simrow">
+      <div class="cwrap">
+        <div class="frame">
+          <canvas id="cv" width="960" height="544"></canvas>
+          <div id="labels"></div>
+          <div id="scan"></div>
+          <div id="toast"></div>
+          <div id="banner">
+            <div class="bar"></div>
+            <div class="mid"><div>Q1 &middot; WINTER PRESSURE<br><b>the board has decided: AGENCY COVER</b></div></div>
+            <div class="bar"></div>
+          </div>
+          <div id="dim"></div>
+          <div id="stamp"><div>QUARTER CLOSED</div></div>
+        </div>
+        <div class="prog">
+          <span class="pq">Q1</span>
+          <div class="pbar"><i id="pfill"></i></div>
+          <span id="ptime">0:00</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>BOARD METRICS</h2>
+        <div class="tick"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">—</span></div>
+        <div class="tick"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">—</span></div>
+        <div class="tick"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">—</span></div>
+        <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">—</span></div>
+        <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">—</span></div>
+        <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">—</span></div>
+        <div class="ekgbox">
+          <canvas id="ekg" width="220" height="46"></canvas>
+          <div class="ekgcap">WARD TELEMETRY — LIVE</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button class="btn" id="btnPause">Pause</button>
+    <button class="btn" id="btnRestart">Restart Q</button>
+    <button class="btn" id="btnFs">Fullscreen</button>
+    <label class="ck"><input type="checkbox" id="ckLabels" checked> Labels</label>
+    <label class="ck"><input type="checkbox" id="ckGrid"> Grid</label>
+    <label class="ck"><input type="checkbox" id="ckScan" checked> Scanlines</label>
+    <span class="note">30&times;17 tiles &middot; 32px &middot; 960&times;544 internal &middot; &times;2 &asymp; 1080p fullscreen</span>
+  </div>
+
+  <details>
+    <summary>MAP DATA + LEGEND (copy into map.js)</summary>
+    <div class="leg" id="legend"></div>
+  </details>
+
+</div>
+<script src="src/data/map-data.js"></script>
+<script src="src/engine/canvas.js"></script>
+<script src="src/engine/map-renderer.js"></script>
+<script src="src/engine/prop-renderer.js"></script>
+<script src="src/engine/pathing.js"></script>
+<script src="src/data/agents-data.js"></script>
+<script src="src/engine/agent-renderer.js"></script>
+<script src="src/data/scenario-data.js"></script>
+<script src="src/ui/dom.js"></script>
+<script src="src/ui/labels.js"></script>
+<script src="src/ui/legend.js"></script>
+<script src="src/engine/state.js"></script>
+<script src="src/ui/controls.js"></script>
+<script src="src/ui/telemetry.js"></script>
+<script src="src/engine/simulation.js"></script>
+<script src="src/main.js"></script>
+</body>
+</html>

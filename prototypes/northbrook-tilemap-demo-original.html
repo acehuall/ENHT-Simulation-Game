@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Northbrook General — Tilemap Demo</title>
+<style>
+  :root{
+    --bg:#0c0e15; --panel:#12151f; --panel2:#161a27; --line:#242b40;
+    --ink:#e8ecf5; --dim:#8b94ab; --teal:#23c4b4; --amber:#e9b44c; --red:#e05252; --green:#5fbf72;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Courier New", ui-monospace, monospace;
+    display:flex; justify-content:center; padding:14px;
+  }
+  .wrap{width:100%; max-width:1120px;}
+
+  .hdr{display:flex; align-items:center; gap:10px; padding:8px 2px 10px;}
+  .nsq{width:24px;height:24px;background:var(--teal);color:#062b28;font-weight:bold;
+       display:flex;align-items:center;justify-content:center;font-size:17px; box-shadow:2px 2px 0 #0a4a44;}
+  .hdr h1{font-size:13px; letter-spacing:2px; font-weight:bold;}
+  .hdr .sub{color:var(--dim); font-size:11px; letter-spacing:1px;}
+  .chip{margin-left:auto; border:2px solid var(--line); background:var(--panel);
+        padding:4px 10px; font-size:11px; letter-spacing:1px; color:var(--amber);}
+
+  .stage{border:2px solid var(--line); background:var(--panel); box-shadow:0 6px 0 #060810;}
+  .stage:fullscreen{display:flex; align-items:center; justify-content:center; background:#05070c;}
+  .stage:fullscreen .simrow{width:100%; max-width:1860px;}
+  .simrow{display:flex; align-items:stretch;}
+  .cwrap{flex:1 1 72%; min-width:0; background:#0a0c13; padding:10px; display:flex; flex-direction:column; gap:8px;}
+  .frame{position:relative; line-height:0;}
+  canvas#cv{width:100%; height:auto; display:block; image-rendering:pixelated; background:#0a0c13;}
+
+  #labels{position:absolute; inset:0; pointer-events:none;}
+  #labels span{
+    position:absolute; transform:translate(-50%,-50%);
+    font-size:9px; letter-spacing:1px; white-space:nowrap; line-height:1;
+    color:#dfe6f2; background:rgba(9,11,19,.74); padding:2px 4px; border-radius:2px;
+  }
+
+  #banner{position:absolute; inset:0; pointer-events:none; opacity:0;
+          display:flex; flex-direction:column; justify-content:space-between;}
+  #banner .bar{height:16%; background:#05070c;}
+  #banner .mid{flex:1; display:flex; align-items:center; justify-content:center;
+               background:rgba(5,7,12,.55);}
+  #banner .mid div{font-size:14px; letter-spacing:2px; text-align:center; padding:0 12px;
+                   line-height:1.7; text-shadow:2px 2px 0 #000;}
+  #banner .mid b{color:var(--amber);}
+
+  #dim{position:absolute; inset:0; background:#05070c; opacity:0; pointer-events:none;}
+  #stamp{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+         pointer-events:none; opacity:0;}
+  #stamp div{border:5px double var(--ink); padding:10px 22px; font-size:22px; letter-spacing:4px;
+             transform:rotate(-7deg); background:rgba(9,11,19,.35); text-shadow:2px 2px 0 #000; line-height:1;}
+
+  #toast{position:absolute; left:10px; bottom:10px; pointer-events:none; opacity:0;
+         background:rgba(9,11,19,.88); border:2px solid var(--line); border-left:4px solid var(--amber);
+         padding:6px 10px; font-size:11px; letter-spacing:1px; transition:opacity .2s; line-height:1.4;}
+
+  #scan{position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
+        background:repeating-linear-gradient(0deg, rgba(255,255,255,0) 0 2px, rgba(0,0,0,.18) 2px 4px);}
+
+  .prog{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--dim); letter-spacing:1px;}
+  .pq{color:var(--amber);}
+  .pbar{flex:1; height:10px; border:2px solid var(--line); background:#0a0c13; position:relative;}
+  .pbar i{position:absolute; inset:0; width:0%; background:var(--teal); display:block;}
+
+  .panel{flex:0 0 220px; border-left:2px solid var(--line); background:var(--panel2);
+         display:flex; flex-direction:column; padding:10px 12px; gap:7px; min-width:190px;}
+  .panel h2{font-size:10px; color:var(--dim); letter-spacing:2px; border-bottom:2px solid var(--line); padding-bottom:6px;}
+  .tick{display:flex; align-items:baseline; gap:6px; border-bottom:1px solid #1b2133; padding:5px 0;}
+  .tick .tl{font-size:10px; color:var(--dim); letter-spacing:1px; width:60px;}
+  .tick .tv{font-size:17px; font-weight:bold; margin-left:auto;}
+  .tick .td{font-size:10px; width:52px; text-align:right;}
+  .up{color:var(--green);} .dn{color:var(--red);} .fl{color:var(--dim);}
+  .ekgbox{margin-top:auto; border:2px solid var(--line); background:#0a0c13; padding:4px;}
+  .ekgbox canvas{width:100%; height:auto; display:block; image-rendering:pixelated;}
+  .ekgcap{font-size:9px; color:var(--dim); letter-spacing:1px; margin-top:3px; text-align:center;}
+
+  .ctrl{display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:10px 2px; font-size:11px;}
+  .btn{background:#1a2030; border:2px solid #333c58; color:#cdd5e6; padding:6px 12px;
+       font-family:inherit; font-size:11px; letter-spacing:1px; text-transform:uppercase; cursor:pointer;}
+  .btn:hover{border-color:var(--teal); color:var(--teal);}
+  label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spacing:1px; cursor:pointer;}
+  .note{margin-left:auto; color:var(--dim); font-size:10px; letter-spacing:.5px;}
+
+  details{border:2px solid var(--line); background:var(--panel); margin-top:4px;}
+  summary{cursor:pointer; padding:8px 12px; font-size:11px; letter-spacing:2px; color:var(--dim);}
+  .leg{padding:4px 14px 14px; font-size:11px; color:var(--dim); line-height:1.8;}
+  .sw{display:inline-block; width:11px; height:11px; vertical-align:-1px; margin-right:4px; border:1px solid #0008;}
+  .leg pre{background:#0a0c13; border:1px solid var(--line); padding:10px; font-size:11px;
+           line-height:1.35; letter-spacing:2px; color:#aab4c8; overflow:auto; margin-top:8px;}
+  .leg b{color:var(--ink);}
+
+  @media (max-width:640px){
+    .simrow{flex-direction:column;}
+    .panel{flex-basis:auto; border-left:none; border-top:2px solid var(--line);}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="hdr">
+    <div class="nsq">N</div>
+    <div>
+      <h1>NORTHBROOK GENERAL HOSPITAL</h1>
+      <div class="sub">TRUST IN BALANCE — SIMULATION VIEW (PHASE B MOCK)</div>
+    </div>
+    <div class="chip">Q1 · WINTER PRESSURE</div>
+  </div>
+
+  <div class="stage">
+    <div class="simrow">
+      <div class="cwrap">
+        <div class="frame">
+          <canvas id="cv" width="960" height="544"></canvas>
+          <div id="labels"></div>
+          <div id="scan"></div>
+          <div id="toast"></div>
+          <div id="banner">
+            <div class="bar"></div>
+            <div class="mid"><div>Q1 &middot; WINTER PRESSURE<br><b>the board has decided: AGENCY COVER</b></div></div>
+            <div class="bar"></div>
+          </div>
+          <div id="dim"></div>
+          <div id="stamp"><div>QUARTER CLOSED</div></div>
+        </div>
+        <div class="prog">
+          <span class="pq">Q1</span>
+          <div class="pbar"><i id="pfill"></i></div>
+          <span id="ptime">0:00</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>BOARD METRICS</h2>
+        <div class="tick"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">—</span></div>
+        <div class="tick"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">—</span></div>
+        <div class="tick"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">—</span></div>
+        <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">—</span></div>
+        <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">—</span></div>
+        <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">—</span></div>
+        <div class="ekgbox">
+          <canvas id="ekg" width="220" height="46"></canvas>
+          <div class="ekgcap">WARD TELEMETRY — LIVE</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ctrl">
+    <button class="btn" id="btnPause">Pause</button>
+    <button class="btn" id="btnRestart">Restart Q</button>
+    <button class="btn" id="btnFs">Fullscreen</button>
+    <label class="ck"><input type="checkbox" id="ckLabels" checked> Labels</label>
+    <label class="ck"><input type="checkbox" id="ckGrid"> Grid</label>
+    <label class="ck"><input type="checkbox" id="ckScan" checked> Scanlines</label>
+    <span class="note">30&times;17 tiles &middot; 32px &middot; 960&times;544 internal &middot; &times;2 &asymp; 1080p fullscreen</span>
+  </div>
+
+  <details>
+    <summary>MAP DATA + LEGEND (copy into map.js)</summary>
+    <div class="leg" id="legend"></div>
+  </details>
+
+</div>
+<script>
+'use strict';
+/* =========================================================
+   NORTHBROOK GENERAL — 30x17 tile map
+   # wall · . corridor · E entrance doors
+   floors by zone: v/w ward · m maternity · a/b store
+   u utilities · s staff · c canteen · o office
+   t waiting · i imaging · g surgery
+   (a door = a zone letter sitting in a wall row)
+========================================================= */
+var MAP = [
+"##############################",
+"#aaaa#wwww#mmmm#uu#bb#sss#ccc#",
+"#aaaa#wwww#mmmm#uu#bb#sss#ccc#",
+"#aaaa#wwww#mmmm#uu#bb#sss#ccc#",
+"#aaaa#wwww#mmmm#uu#bb#sss#ccc#",
+"#aaaa#wwww#mmmm#uu#bb#sss#ccc#",
+"##a#####w###m###u##b###s###c##",
+"#............................#",
+"#............................#",
+"##v#v##v##o##....##t###i###g##",
+"#vv#vv#vv#oo#....#ttt#iii#ggg#",
+"#vv#vv#vv#oo#....#ttt#iii#ggg#",
+"#vv#vv#vv####....#ttt#iii#ggg#",
+"#vv#vv#vv#vvv....#ttt#iii#ggg#",
+"#vv#vv#vv#vv#....#ttt#iii#ggg#",
+"#vv#vv#vv#vv#....#ttt#iii#ggg#",
+"##############EE##############"
+];
+var TILE=32, COLS=30, ROWS=17, QLEN=45;
+
+var FLOORS = {
+  '.':['#b9c0c9','#b0b7c1'], 'E':['#b9c0c9','#b0b7c1'],
+  'v':['#b7d4bd','#adcab3'], 'w':['#b7d4bd','#adcab3'],
+  'm':['#dcc6d2','#d2bcc8'],
+  'a':['#c9b691','#bfac87'], 'b':['#c9b691','#bfac87'],
+  'u':['#a8a49c','#9e9a92'],
+  's':['#d9c8a4','#cfbe9a'], 'c':['#e0d6b8','#d6ccae'],
+  'o':['#c3cade','#b9c0d4'], 't':['#c7d6e4','#bdccda'],
+  'i':['#a9ccd4','#9fc2ca'], 'g':['#bfe0d2','#b5d6c8']
+};
+var WALL={cap:'#262b3d', face:'#454f76', hi:'#5a6591', seam:'#161a28'};
+
+/* props: [type, tileX, tileY] — bed/surg 1x2 tall, mri/boiler 2x2, desk 3 wide, odesk 2 wide */
+var PROPS=[
+ ['crate',1,1],['crate',2,1],['crate',4,2],
+ ['bed',6,1],['bed',8,1],
+ ['bed',11,1],['bed',13,1],['cot',14,1],['plant',9,4],['plant',11,4],
+ ['boiler',16,1],
+ ['crate',19,1],['crate',20,1],['crate',20,2],
+ ['vending',22,1],['table',23,3],
+ ['table',27,2],['table',27,4],
+ ['plant',1,7],['plant',28,7],
+ ['desk',13,8],
+ ['odesk',10,11],
+ ['bed',1,14],['bed',2,14],['bed',4,14],['bed',5,14],
+ ['bedocc',7,14],['bed',8,14],
+ ['bed',10,14],['bed',11,14],
+ ['plant',18,10],
+ ['chair',18,11],['chair',18,12],['chair',18,13],['chair',18,14],
+ ['chair',20,11],['chair',20,12],['chair',20,13],['chair',20,14],
+ ['cabinet',24,10],['mri',22,11],['bed',24,14],
+ ['cabinet',26,10],['surg',27,12],['bed',28,14]
+];
+
+var LABELS=[
+ ['STORE',3,3.2],['WARD 1',8,3.2],['MATERNITY',13,3.2],['UTILITIES',17,4.1],
+ ['STORE',20,3.2],['STAFF ROOM',23.5,4.4],['CANTEEN',27.5,3.2],
+ ['RECEPTION',14.5,8.05],
+ ['WARD 2',2,11.4],['WARD 3',5,11.4],['WARD 4',8,11.4],
+ ['OFFICE',11,10.35],['WARD 5',11.4,13.35],
+ ['WAITING ROOM',19.5,12.5],['IMAGING',23.5,10.45],['SURGERY',27.5,11.15],
+ ['ENTRANCE',15,15.15]
+];
+
+/* ---------- helpers ---------- */
+var cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+function at(x,y){ return (x<0||y<0||x>=COLS||y>=ROWS)?'#':MAP[y].charAt(x); }
+function isFloor(ch){ return ch!=='#'; }
+function R(c,x,y,w,h){ ctx.fillStyle=c; ctx.fillRect(x|0,y|0,w|0,h|0); }
+function hash(x,y){ var n=x*374761393+y*668265263; n=((n^(n>>13))*1274126177)|0; return (n^(n>>16))>>>0; }
+function clamp(v,a,b){ return Math.max(a,Math.min(b,v)); }
+function ease(p){ return p<.5 ? 4*p*p*p : 1-Math.pow(-2*p+2,3)/2; }
+
+/* ---------- static layer (drawn once, offscreen) ---------- */
+var stat=document.createElement('canvas'); stat.width=960; stat.height=544;
+var sc=stat.getContext('2d');
+
+function drawStatic(){
+  var c=sc;
+  function F(col,x,y,w,h){ c.fillStyle=col; c.fillRect(x,y,w,h); }
+  for(var ty=0;ty<ROWS;ty++)for(var tx=0;tx<COLS;tx++){
+    var ch=at(tx,ty), x=tx*TILE, y=ty*TILE;
+    if(ch==='#'){
+      F(WALL.cap,x,y,32,32);
+      if(isFloor(at(tx,ty+1))){
+        F(WALL.face,x,y+14,32,18);
+        F(WALL.hi,x,y+14,32,2);
+        F(WALL.seam,x,y+30,32,2);
+      }
+      if(isFloor(at(tx,ty-1))) F(WALL.seam,x,y,32,2);
+    }else{
+      var f=FLOORS[ch]||FLOORS['.'];
+      F(((tx+ty)&1)?f[0]:f[1],x,y,32,32);
+      if(hash(tx,ty)%7===0) F('rgba(0,0,0,0.08)',x+8+(hash(tx,ty)%3)*6,y+8+(hash(ty,tx)%3)*6,3,3);
+      if(at(tx,ty-1)==='#'){ F('rgba(0,0,0,0.16)',x,y,32,5); F('rgba(0,0,0,0.07)',x,y+5,32,3); }
+      if(at(tx-1,ty)==='#') F('rgba(0,0,0,0.09)',x,y,4,32);
+      if(at(tx+1,ty)==='#') F('rgba(0,0,0,0.09)',x+28,y,4,32);
+      if((ty===6||ty===9)&&ch!=='.') F('rgba(0,0,0,0.10)',x+2,y+12,28,8);
+      if(ch==='E'){
+        F('#33415e',x+1,y+3,30,26); F('#8fd7dd',x+4,y+6,10,20); F('#8fd7dd',x+18,y+6,10,20);
+        F('#d7f2f4',x+5,y+7,3,18); F('#33415e',x+15,y+3,2,26);
+      }
+    }
+  }
+  /* N sign on the front wall by the entrance */
+  F('#0a4a44',408,518,26,22); F('#17a9a3',406,516,26,22);
+  c.fillStyle='#eafffd'; c.font='bold 16px monospace'; c.textAlign='center'; c.textBaseline='middle';
+  c.fillText('N',419,528);
+  for(var i=0;i<PROPS.length;i++) drawProp(c,PROPS[i][0],PROPS[i][1]*TILE,PROPS[i][2]*TILE);
+}
+
+/* ---------- placeholder pixel props ---------- */
+function drawProp(c,type,x,y){
+  function P(col,a,b,w,h){ c.fillStyle=col; c.fillRect(x+a,y+b,w,h); }
+  switch(type){
+    case 'bed': case 'bedocc':
+      P('#4a5266',3,1,26,60); P('#7c8494',4,2,24,58);
+      P('#5d6578',4,2,24,8);
+      P('#f2f4f7',7,11,18,10);
+      P('#3f6fb5',4,24,24,34); P('#6f97d0',4,30,24,3);
+      if(type==='bedocc'){ P('#e8b48c',11,10,10,9); P('#5a4632',11,10,10,3); }
+      break;
+    case 'cot':
+      P('#c6ccd8',4,5,24,22); P('#f5f7fa',6,7,20,18); P('#e8a7bd',6,16,20,9); P('#ffffff',8,9,8,5);
+      break;
+    case 'chair':
+      P('#2f3a52',8,24,4,5); P('#2f3a52',20,24,4,5);
+      P('#3f66a0',7,4,18,8); P('#4f7fc0',7,11,18,14); P('#6a9ad6',7,11,18,3);
+      break;
+    case 'desk':
+      for(var i=0;i<3;i++){ var o=i*32;
+        P('#e2e6ec',o,6,32,12); P('#f4f6f9',o,6,32,3);
+        P('#33415e',o,18,32,12); P('#16a3a3',o,24,32,3);
+      }
+      P('#20242f',41,-3,14,11); P('#3fd1c4',43,-1,10,7); P('#20242f',46,8,4,3);
+      P('#ffffff',8,8,10,6); P('#c9505a',70,7,6,8);
+      break;
+    case 'odesk':
+      P('#8f6a3a',2,8,60,20); P('#b58a4f',2,8,60,14);
+      P('#ffffff',8,11,11,8); P('#20242f',40,10,10,8); P('#3fd1c4',42,12,6,4);
+      break;
+    case 'mri':
+      P('#c9cfda',4,8,56,44); P('#eef1f5',4,6,56,42);
+      c.fillStyle='#2e3650'; c.beginPath(); c.arc(x+32,y+27,20,0,7); c.fill();
+      c.fillStyle='#10131c'; c.beginPath(); c.arc(x+32,y+27,11,0,7); c.fill();
+      P('#c6ccd8',22,48,20,14); P('#9aa2b2',22,48,20,3);
+      break;
+    case 'surg':
+      P('#ffd76a',18,0,14,9); P('#b3894a',24,9,3,4);
+      P('#828a9a',9,50,14,6);
+      P('#9aa2b2',6,7,20,46); P('#cfd6df',7,8,18,44); P('#f2f4f7',9,10,14,8);
+      break;
+    case 'boiler':
+      P('#6d7788',14,-8,8,12); P('#6d7788',42,-8,8,12);
+      P('#4a6552',7,7,50,46); P('#5f7f68',8,6,48,44);
+      P('#4a6552',8,16,48,4); P('#4a6552',8,32,48,4);
+      c.fillStyle='#f4f6f8'; c.beginPath(); c.arc(x+32,y+24,7,0,7); c.fill();
+      P('#d64545',31,19,2,6);
+      P('#d9b23a',8,44,48,6); P('#20242f',14,44,6,6); P('#20242f',30,44,6,6); P('#20242f',46,44,6,6);
+      break;
+    case 'crate':
+      P('#8a6236',4,6,24,22); P('#a97c46',6,8,20,18);
+      P('#8a6236',6,8,20,3); P('#8a6236',6,23,20,3); P('#8a6236',14,8,4,18);
+      break;
+    case 'table':
+      P('#8f6a3a',3,8,26,20); P('#c89a5e',4,9,24,15); P('#dcb479',4,9,24,4);
+      break;
+    case 'vending':
+      P('#8a3535',4,2,24,29); P('#c94f4f',5,3,22,27);
+      P('#9fd3e8',8,6,12,15); P('#e9b44c',9,8,4,3); P('#5fbf72',14,8,4,3);
+      P('#e05252',9,13,4,3); P('#f4f6f8',14,13,4,3); P('#20242f',8,24,12,4);
+      break;
+    case 'plant':
+      P('#7a4328',10,21,12,9); P('#a5603c',10,21,12,4);
+      c.fillStyle='#3d7c44'; c.beginPath(); c.arc(x+16,y+13,9,0,7); c.fill();
+      c.fillStyle='#4e9a55'; c.beginPath(); c.arc(x+12,y+11,6,0,7); c.fill();
+      c.fillStyle='#66b06c'; c.beginPath(); c.arc(x+19,y+9,5,0,7); c.fill();
+      break;
+    case 'cabinet':
+      P('#c6ccd8',3,5,26,22); P('#f0f3f6',4,6,24,20);
+      P('#d64545',13,9,6,14); P('#d64545',9,13,14,6);
+      break;
+  }
+}
+
+/* ---------- agents on waypoint loops (deterministic: position = f(time)) ---------- */
+var SPEED=2.2;
+function buildLoop(pts,pauses,speed,oneWay){
+  var order=[], k;
+  for(k=0;k<pts.length;k++) order.push(k);
+  if(!oneWay) for(k=pts.length-2;k>=0;k--) order.push(k);
+  var ev=[], t=0;
+  if(pauses[0]){ ev.push({kind:'pause',t0:t,t1:t+pauses[0],at:pts[0],idx:0}); t+=pauses[0]; }
+  for(k=1;k<order.length;k++){
+    var i=order[k-1], j=order[k];
+    var d=Math.abs(pts[i][0]-pts[j][0])+Math.abs(pts[i][1]-pts[j][1]);
+    ev.push({kind:'move',t0:t,t1:t+d/speed,from:pts[i],to:pts[j]}); t+=d/speed;
+    if(pauses[j]&&k<order.length-1){ ev.push({kind:'pause',t0:t,t1:t+pauses[j],at:pts[j],idx:j}); t+=pauses[j]; }
+  }
+  return {ev:ev,cycle:t,end:pts[order[order.length-1]]};
+}
+function samplePath(L,time,oneWay){
+  var t=oneWay?Math.min(time,L.cycle-0.001):(((time%L.cycle)+L.cycle)%L.cycle);
+  for(var n=0;n<L.ev.length;n++){
+    var e=L.ev[n];
+    if(t>=e.t0&&t<e.t1){
+      if(e.kind==='pause') return {x:e.at[0],y:e.at[1],dx:0,dy:1,moving:false,idx:e.idx};
+      var p=(t-e.t0)/(e.t1-e.t0);
+      return {x:e.from[0]+(e.to[0]-e.from[0])*p, y:e.from[1]+(e.to[1]-e.from[1])*p,
+              dx:Math.sign(e.to[0]-e.from[0]), dy:Math.sign(e.to[1]-e.from[1]), moving:true, idx:-1};
+    }
+  }
+  return {x:L.end[0],y:L.end[1],dx:0,dy:1,moving:false,idx:-1};
+}
+
+var AGENTS=[
+ {role:'porter',   L:buildLoop([[2,8],[12,8],[12,7],[27,7]], {0:2.2,3:2.2}, SPEED)},
+ {role:'nurse',    L:buildLoop([[23,4],[23,7],[7,7],[7,13]], {0:2.6,3:3.2}, SPEED), heartIdx:3, heartAt:[7,14]},
+ {role:'doctor',   L:buildLoop([[23,10],[23,7],[8,7],[8,4]], {0:2.4,3:2.6}, SPEED)},
+ {role:'patient',  L:buildLoop([[14,15],[14,9],[16,9],[16,8],[19,8],[19,12]], {0:2.0,1:1.6,5:4.0}, SPEED)},
+ {role:'agency',   L:buildLoop([[14,15],[14,9],[16,9],[16,7],[23,7],[23,4]], {}, 2.4, true), startAt:18, oneWay:true},
+ {role:'reception',fixed:[14,7]},
+ {role:'sitter',   fixed:[20,12], seated:true}
+];
+
+var ROLE={
+  porter:   {top:'#7a8a6d', leg:'#4c5844', hair:'#5a4632'},
+  nurse:    {top:'#2f63c7', leg:'#274f9e', hair:'#2e2620'},
+  doctor:   {top:'#f4f6f8', leg:'#6b7688', hair:'#6f6a63'},
+  patient:  {top:'#bfe3d3', leg:'#9cc4b2', hair:'#3c332a'},
+  agency:   {top:'#17a9a3', leg:'#0f7f7a', hair:'#20242f'},
+  reception:{top:'#8a5fc0', leg:'#5f4287', hair:'#402f22'},
+  sitter:   {top:'#d9c78f', leg:'#b3a273', hair:'#57432f'}
+};
+
+function drawAgent(role,tx,ty,dx,dy,moving,clock,seated){
+  var r=ROLE[role];
+  var fx=tx*TILE+16, fy=ty*TILE+29;
+  var fr=moving?(Math.floor(clock*7)%2):0;
+  var bob=moving?fr:0;
+  ctx.fillStyle='rgba(0,0,0,0.25)';
+  ctx.beginPath(); ctx.ellipse(fx,fy+1,9,3,0,0,7); ctx.fill();
+  function O(x,y,w,h,col){ R('#20242f',x-1,y-1,w+2,h+2); R(col,x,y,w,h); }
+  if(seated){
+    O(fx-8,fy-16,16,12,r.top);
+    O(fx-7,fy-27,14,11,'#e8b48c'); R(r.hair,fx-7,fy-27,14,4);
+    R('#20242f',fx-4,fy-22,2,3); R('#20242f',fx+2,fy-22,2,3);
+    return;
+  }
+  var ly=fy-8-bob;
+  O(fx-6,ly,5,8,r.leg); O(fx+1,ly,5,8,r.leg);
+  if(moving){ R('#20242f',fx-6,(fr?ly+6:ly-1),5,2); R('#20242f',fx+1,(fr?ly-1:ly+6),5,2); }
+  O(fx-8,fy-19-bob,16,12,r.top);
+  if(role==='doctor'){ R('#c6ccd8',fx-1,fy-19-bob,2,12); R('#17a9a3',fx-5,fy-17-bob,3,3); }
+  if(role==='nurse'||role==='agency'){ R('#f4f6f8',fx-1,fy-16-bob,4,2); R('#f4f6f8',fx,fy-17-bob,2,4); }
+  if(role==='agency'){ R('#e9b44c',fx+4,fy-17-bob,3,4); }
+  O(fx-7,fy-30-bob,14,12,'#e8b48c');
+  R(r.hair,fx-7,fy-30-bob,14,(dy<0?9:4));
+  if(dy>=0){
+    var s=dx<0?-3:(dx>0?3:0);
+    R('#20242f',fx-4+s,fy-25-bob,2,3); R('#20242f',fx+2+s,fy-25-bob,2,3);
+  }
+}
+
+/* ---------- director timeline ---------- */
+var TOASTS=[
+  {t:8,  msg:'&#9888; 3 nurses off sick &mdash; norovirus'},
+  {t:18, msg:'&#10010; Agency cover arrives'},
+  {t:28, msg:'&#9888; Incident reported &mdash; Ward 4'}
+];
+var TICKS=[
+  {s:0,  e:-1.8, money:true},
+  {s:68, e:69},
+  {s:63, e:65},
+  {s:58, e:61},
+  {s:66, e:68},
+  {s:60, e:60}
+];
+function fmtMoney(v){ return (v<-0.05?'&#8722;':'')+'£'+Math.abs(v).toFixed(1)+'m'; }
+
+/* ---------- UI wiring ---------- */
+function $(id){ return document.getElementById(id); }
+var labelsDiv=$('labels');
+LABELS.forEach(function(l){
+  var s=document.createElement('span');
+  s.textContent=l[0];
+  s.style.left=(l[1]/COLS*100)+'%';
+  s.style.top=(l[2]/ROWS*100)+'%';
+  labelsDiv.appendChild(s);
+});
+
+(function buildLegend(){
+  var zones=[['corridor','.'],['ward','v'],['maternity','m'],['store','a'],['utilities','u'],
+             ['staff room','s'],['canteen','c'],['office','o'],['waiting','t'],['imaging','i'],['surgery','g']];
+  var h='<b>Floor zones:</b> ';
+  zones.forEach(function(z){ h+='<span class="sw" style="background:'+FLOORS[z[1]][0]+'"></span>'+z[0]+' ('+z[1]+') &nbsp; '; });
+  h+='<br><b>#</b> wall &middot; <b>E</b> entrance (sliding doors) &middot; a door is a zone letter sitting in a wall row.';
+  h+='<br><b>Props (placed on top of the tile layer):</b> bed 1&times;2 &middot; cot &middot; waiting chair &middot; reception counter 3w &middot; office desk 2w &middot; MRI 2&times;2 &middot; surgery table 1&times;2 &middot; boiler 2&times;2 &middot; vending &middot; canteen table &middot; crate &middot; plant &middot; med cabinet.';
+  h+='<br><b>Scale:</b> 30&times;17 @ 32px = 960&times;544. &times;2 = 1920&times;1088, so fullscreen on a 1080p TV is a clean integer scale (8px vertical crop). In the sim screen it sits 1&times; beside the ticker column.';
+  h+='<pre>'+MAP.join('\n')+'</pre>';
+  $('legend').innerHTML=h;
+})();
+
+var paused=false, clock=0, last=performance.now();
+$('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
+$('btnRestart').onclick=function(){ clock=0; };
+$('btnFs').onclick=function(){
+  var st=document.querySelector('.stage');
+  if(document.fullscreenElement){ document.exitFullscreen(); }
+  else if(st.requestFullscreen){ st.requestFullscreen().catch(function(){}); }
+};
+$('ckLabels').onchange=function(){ labelsDiv.style.display=this.checked?'':'none'; };
+$('ckScan').onchange=function(){ $('scan').style.display=this.checked?'':'none'; };
+
+/* ---------- telemetry blip ---------- */
+var ek=$('ekg'), ekc=ek.getContext('2d'), ekBuf=[];
+function ekgVal(t){
+  var u=t%1.25;
+  if(u<0.5) return 30+Math.sin(t*8)*1.5;
+  if(u<0.56) return 35;
+  if(u<0.62) return 9;
+  if(u<0.68) return 40;
+  if(u<0.8) return 28;
+  return 30;
+}
+function drawEkg(t){
+  ekBuf.push(ekgVal(t)); if(ekBuf.length>220) ekBuf.shift();
+  ekc.fillStyle='#0a0c13'; ekc.fillRect(0,0,220,46);
+  ekc.fillStyle='rgba(35,196,180,0.08)';
+  for(var gx=0;gx<220;gx+=20) ekc.fillRect(gx,0,1,46);
+  ekc.strokeStyle='#3fe08c'; ekc.lineWidth=2; ekc.beginPath();
+  for(var i=0;i<ekBuf.length;i++){ i?ekc.lineTo(i,ekBuf[i]):ekc.moveTo(i,ekBuf[i]); }
+  ekc.stroke();
+}
+
+/* ---------- main loop ---------- */
+function render(){
+  var simT=clock%QLEN;
+  ctx.drawImage(stat,0,0);
+
+  if($('ckGrid').checked){
+    ctx.fillStyle='rgba(0,0,0,0.12)';
+    for(var gx=1;gx<COLS;gx++) ctx.fillRect(gx*32,0,1,544);
+    for(var gy=1;gy<ROWS;gy++) ctx.fillRect(0,gy*32,960,1);
+  }
+
+  /* N sign flicker */
+  var m=simT%6.5;
+  if((m>5.9&&m<6.05)||(m>6.2&&m<6.28)){ ctx.fillStyle='rgba(6,10,16,0.75)'; ctx.fillRect(406,516,26,22); }
+
+  /* agents */
+  for(var n=0;n<AGENTS.length;n++){
+    var a=AGENTS[n];
+    if(a.fixed){ drawAgent(a.role,a.fixed[0],a.fixed[1],0,1,false,clock,a.seated); continue; }
+    if(a.startAt!=null && simT<a.startAt) continue;
+    var time=(a.startAt!=null)? simT-a.startAt : clock;
+    var p=samplePath(a.L,time,a.oneWay);
+    drawAgent(a.role,p.x,p.y,p.dx,p.dy,p.moving,clock,false);
+    if(a.heartIdx!=null && p.idx===a.heartIdx){
+      var ph=(clock*1.1)%1;
+      ctx.globalAlpha=1-ph;
+      var hx=a.heartAt[0]*32+16, hy=a.heartAt[1]*32-2-ph*14;
+      R('#ff5c7a',hx-4,hy-3,3,3); R('#ff5c7a',hx+1,hy-3,3,3);
+      R('#ff5c7a',hx-4,hy,8,3); R('#ff5c7a',hx-2,hy+3,4,2);
+      ctx.globalAlpha=1;
+    }
+  }
+
+  /* mood emote over the seated patient (PatSat theatre) */
+  var happy=(clock%7)<3.5, ex=20*32+16, ey=12*32-16;
+  R('#f4f6f8',ex-10,ey-9,20,16); R('#f4f6f8',ex-2,ey+7,4,3);
+  if(happy){
+    R('#3fae5c',ex-6,ey-5,3,3); R('#3fae5c',ex+3,ey-5,3,3); R('#3fae5c',ex-5,ey+2,10,2);
+  }else{
+    R('#d84848',ex-6,ey-5,3,3); R('#d84848',ex+3,ey-5,3,3); R('#d84848',ex-4,ey+2,8,2);
+    R('#d84848',ex-7,ey-8,4,2); R('#d84848',ex+3,ey-8,4,2);
+  }
+
+  /* incident flash over Ward 4 bed (Safety theatre) */
+  if(simT>=28&&simT<35&&Math.floor(clock*3)%2===0){
+    var wx=7*32+16, wy=14*32-4;
+    ctx.fillStyle='#b3541e'; ctx.beginPath();
+    ctx.moveTo(wx,wy-20); ctx.lineTo(wx+13,wy+2); ctx.lineTo(wx-13,wy+2); ctx.closePath(); ctx.fill();
+    ctx.fillStyle='#ffcf3f'; ctx.beginPath();
+    ctx.moveTo(wx,wy-16); ctx.lineTo(wx+10,wy); ctx.lineTo(wx-10,wy); ctx.closePath(); ctx.fill();
+    R('#1a1a1a',wx-1,wy-11,3,6); R('#1a1a1a',wx-1,wy-3,3,2);
+  }
+
+  /* letterbox banner */
+  $('banner').style.opacity = simT<2.6 ? 1 : (simT<3.2 ? (3.2-simT)/0.6 : 0);
+
+  /* quarter close */
+  var st=$('stamp');
+  if(simT>=38){
+    $('dim').style.opacity=Math.min(1,(simT-38)/0.8)*0.55;
+    var sp=clamp((simT-38.2)/0.3,0,1);
+    st.style.opacity=sp;
+    st.firstElementChild.style.transform='rotate(-7deg) scale('+(2.2-1.2*sp)+')';
+  }else{ $('dim').style.opacity=0; st.style.opacity=0; }
+
+  /* toasts */
+  var tActive=null;
+  for(var q=0;q<TOASTS.length;q++) if(simT>=TOASTS[q].t && simT<TOASTS[q].t+5.5) tActive=TOASTS[q];
+  var toastEl=$('toast');
+  if(tActive){ toastEl.innerHTML=tActive.msg; toastEl.style.opacity=1; } else toastEl.style.opacity=0;
+
+  /* progress + tickers */
+  $('pfill').style.width=(simT/QLEN*100)+'%';
+  $('ptime').textContent='0:'+('0'+Math.floor(simT)).slice(-2);
+  var pr=ease(clamp((simT-3)/35,0,1));
+  for(var ti=0;ti<TICKS.length;ti++){
+    var tk=TICKS[ti], v=tk.s+(tk.e-tk.s)*pr, d=v-tk.s;
+    $('v'+ti).innerHTML = tk.money ? fmtMoney(v) : String(Math.round(v));
+    var de=$('d'+ti);
+    if(Math.abs(d)<0.05){ de.textContent='—'; de.className='td fl'; }
+    else{
+      var up=d>0;
+      de.innerHTML=(up?'&#9650; ':'&#9660; ')+(tk.money?('£'+Math.abs(d).toFixed(1)+'m'):String(Math.abs(Math.round(d))));
+      de.className='td '+(up?'up':'dn');
+    }
+  }
+  drawEkg(clock);
+}
+
+function frame(now){
+  var dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(!paused) clock+=dt;
+  render();
+  requestAnimationFrame(frame);
+}
+drawStatic();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

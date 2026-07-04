@@ -1,0 +1,12 @@
+:root{
+  --bg:#0c0e15; --panel:#12151f; --panel2:#161a27; --line:#242b40;
+  --ink:#e8ecf5; --dim:#8b94ab; --teal:#23c4b4; --amber:#e9b44c; --red:#e05252; --green:#5fbf72;
+}
+*{box-sizing:border-box; margin:0; padding:0;}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:"Courier New", ui-monospace, monospace;
+  display:flex; justify-content:center; padding:14px;
+}
+.wrap{width:100%; max-width:1120px;}
+canvas#cv{width:100%; height:auto; display:block; image-rendering:pixelated; background:#0a0c13;}

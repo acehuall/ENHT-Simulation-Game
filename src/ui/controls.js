@@ -1,6 +1,6 @@
 'use strict';
 $('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
-$('btnRestart').onclick=function(){ clock=0; };
+$('btnRestart').onclick=function(){ clock=0; prevSimT=0; resetMetrics(); };
 $('btnFs').onclick=function(){
   var st=document.querySelector('.stage');
   if(document.fullscreenElement){ document.exitFullscreen(); }

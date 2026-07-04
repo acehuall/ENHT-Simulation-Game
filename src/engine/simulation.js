@@ -1,7 +1,11 @@
 'use strict';
 /* ---------- main loop ---------- */
+var prevSimT=0;
 function render(){
   var simT=clock%QLEN;
+  if(simT<prevSimT) resetMetrics();   /* quarter looped back to the start */
+  prevSimT=simT;
+  updateMetrics(simT);
   ctx.drawImage(stat,0,0);
 
   if($('ckGrid').checked){
@@ -73,18 +77,19 @@ function render(){
   /* progress + tickers */
   $('pfill').style.width=(simT/QLEN*100)+'%';
   $('ptime').textContent='0:'+('0'+Math.floor(simT)).slice(-2);
-  var pr=ease(clamp((simT-3)/35,0,1));
-  for(var ti=0;ti<TICKS.length;ti++){
-    var tk=TICKS[ti], v=tk.s+(tk.e-tk.s)*pr, d=v-tk.s;
-    $('v'+ti).innerHTML = tk.money ? fmtMoney(v) : String(Math.round(v));
+  var defs=getMetricDefs();
+  for(var ti=0;ti<defs.length;ti++){
+    var def=getMetricByIndex(ti), v=getMetricValue(def.key), d=getMetricDelta(def.key);
+    $('v'+ti).innerHTML = def.money ? fmtMoney(v) : String(Math.round(v));
     var de=$('d'+ti);
     if(Math.abs(d)<0.05){ de.textContent='—'; de.className='td fl'; }
     else{
       var up=d>0;
-      de.innerHTML=(up?'&#9650; ':'&#9660; ')+(tk.money?('£'+Math.abs(d).toFixed(1)+'m'):String(Math.abs(Math.round(d))));
+      de.innerHTML=(up?'&#9650; ':'&#9660; ')+(def.money?('£'+Math.abs(d).toFixed(1)+'m'):String(Math.abs(Math.round(d))));
       de.className='td '+(up?'up':'dn');
     }
   }
+  drawStatsChart();
   drawEkg(clock);
 }
 

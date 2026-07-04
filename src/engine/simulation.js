@@ -89,7 +89,7 @@ function render(){
     if(Math.abs(d)<0.05){ de.textContent='—'; de.className='td fl'; }
     else{
       var up=d>0;
-      de.innerHTML=(up?'&#9650; ':'&#9660; ')+(def.money?('£'+Math.abs(d).toFixed(1)+'m'):String(Math.abs(Math.round(d))));
+      de.innerHTML=(up?'&#9650; ':'&#9660; ')+(def.money?('GBP'+Math.abs(d).toFixed(1)+'m'):String(Math.abs(Math.round(d))));
       de.className='td '+(up?'up':'dn');
     }
   }

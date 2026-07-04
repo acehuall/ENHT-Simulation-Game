@@ -30,10 +30,35 @@ function _clampMetric(key,v){
   return def ? clamp(v,def.min,def.max) : v;
 }
 
-/* push one history sample at time t using the current values */
-function _sampleMetrics(t){
+function _metricSnapshotAt(t){
   var s={t:t};
-  for(var i=0;i<METRIC_DEFS.length;i++){ var k=METRIC_DEFS[i].key; s[k]=METRIC_CUR[k]; }
+  for(var i=0;i<METRIC_DEFS.length;i++){
+    var def=METRIC_DEFS[i];
+    s[def.key]=def.start;
+  }
+  for(var e=0;e<STAT_EVENTS.length;e++){
+    var ev=STAT_EVENTS[e], p=clamp((t-ev.t)/METRIC_EVENT_RAMP,0,1);
+    if(p<=0) continue;
+    p=ease(p);
+    for(var key in ev.effects){
+      if(ev.effects.hasOwnProperty(key) && s.hasOwnProperty(key)){
+        s[key]=_clampMetric(key,s[key]+ev.effects[key]*p);
+      }
+    }
+  }
+  return s;
+}
+
+function _applyMetricSnapshot(s){
+  for(var i=0;i<METRIC_DEFS.length;i++){
+    var k=METRIC_DEFS[i].key;
+    METRIC_CUR[k]=s[k];
+  }
+}
+
+/* push one history sample at time t using the deterministic timeline state */
+function _sampleMetrics(t){
+  var s=_metricSnapshotAt(t);
   METRIC_HISTORY.push(s);
   _lastSampleT=t;
 }
@@ -53,35 +78,16 @@ function resetMetrics(){
   _sampleMetrics(0);   /* seed the trail at t=0 */
 }
 
-/* queue a gradual change: current value -> current+delta over the ramp */
-function _startTransition(key,delta,simT){
-  if(_metricDef(key)==null) return;
-  var from=METRIC_CUR[key];
-  METRIC_TRANS.push({
-    key:key, t0:simT, t1:simT+METRIC_EVENT_RAMP,
-    from:from, to:_clampMetric(key,from+delta)
-  });
-}
-
 /* advance the metrics to sim time simT (called every frame) */
 function updateMetrics(simT){
-  /* 1. fire any events whose time has arrived (once per quarter) */
-  for(var i=0;i<STAT_EVENTS.length;i++){
-    if(_metricFired[i]) continue;
-    if(simT>=STAT_EVENTS[i].t){
-      var fx=STAT_EVENTS[i].effects;
-      for(var key in fx){ if(fx.hasOwnProperty(key)) _startTransition(key,fx[key],simT); }
-      _metricFired[i]=true;
-    }
+  if(simT<_lastSampleT){
+    METRIC_HISTORY=[];
+    _lastSampleT=-1;
+    _sampleMetrics(0);
   }
-  /* 2. interpolate active transitions, dropping finished ones */
-  for(var j=METRIC_TRANS.length-1;j>=0;j--){
-    var tr=METRIC_TRANS[j], p=(simT-tr.t0)/(tr.t1-tr.t0);
-    if(p>=1){ METRIC_CUR[tr.key]=tr.to; METRIC_TRANS.splice(j,1); }
-    else if(p>0){ METRIC_CUR[tr.key]=tr.from+(tr.to-tr.from)*ease(p); }
-  }
-  /* 3. sample the history on a fixed grid (not every frame) */
+  /* sample the history on a fixed grid (not every frame) */
   while(_lastSampleT+METRIC_SAMPLE_DT<=simT){ _sampleMetrics(_lastSampleT+METRIC_SAMPLE_DT); }
+  _applyMetricSnapshot(_metricSnapshotAt(simT));
 }
 
 /* ---------- accessors for the UI ---------- */

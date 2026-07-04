@@ -29,7 +29,7 @@ var CHART_COLORS={
   rep:    '#c3cade'
 };
 
-function _chartTime(sec){ return '0:'+('0'+Math.floor(sec)).slice(-2); }
+function _chartMonth(index){ return 'M'+index; }
 
 function drawStatsChart(){
   var W=statsChart.width, H=statsChart.height;      /* 220 x 120 */
@@ -47,6 +47,18 @@ function drawStatsChart(){
     var gy=Math.round(top+(1-yv[g]/100)*plotH);
     scc.fillStyle='rgba(139,148,171,0.15)'; scc.fillRect(left,gy,plotW,1);
     scc.fillStyle='#8b94ab'; scc.fillText(String(yv[g]),left-3,gy);
+  }
+
+  /* month markers */
+  scc.font='8px "Courier New", monospace';
+  scc.textAlign='center'; scc.textBaseline='top';
+  for(var mo=1;mo<=SIM_MONTHS;mo++){
+    var mx=Math.round(left+(mo/SIM_MONTHS)*plotW);
+    scc.fillStyle='rgba(195,202,222,0.22)';
+    scc.fillRect(mx,top,1,plotH);
+    scc.fillStyle='#8b94ab';
+    scc.textAlign=(mo===SIM_MONTHS)?'right':'center';
+    scc.fillText(_chartMonth(mo),mx,bottom+3);
   }
 
   /* subtle event markers (norovirus / agency / incident) */
@@ -83,10 +95,5 @@ function drawStatsChart(){
   scc.fillStyle='#242b40';
   scc.fillRect(left,top,plotW,1); scc.fillRect(left,bottom,plotW,1);
   scc.fillRect(left,top,1,plotH); scc.fillRect(right,top,1,plotH);
-
-  /* x-axis start / end labels */
-  scc.fillStyle='#8b94ab'; scc.textBaseline='top';
-  scc.textAlign='left';  scc.fillText(_chartTime(0),left,bottom+3);
-  scc.textAlign='right'; scc.fillText(_chartTime(QLEN),right,bottom+3);
 
 }

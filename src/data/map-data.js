@@ -26,7 +26,13 @@ var MAP = [
 "#vv#vv#vv#vv#....#ttt#iii#ggg#",
 "##############EE##############"
 ];
-var TILE=32, COLS=30, ROWS=17, QLEN=45;
+var TILE=32, COLS=30, ROWS=17, QLEN=45, SIM_MONTHS=3;
+
+function simMonthLength(){ return QLEN/SIM_MONTHS; }
+function simMonthNumber(sec){
+  return Math.min(SIM_MONTHS, Math.floor(Math.min(sec,QLEN-0.001)/simMonthLength())+1);
+}
+function simMonthLabel(sec){ return 'Month '+simMonthNumber(sec); }
 
 var FLOORS = {
   '.':['#b9c0c9','#b0b7c1'], 'E':['#b9c0c9','#b0b7c1'],

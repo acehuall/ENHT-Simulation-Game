@@ -5,9 +5,8 @@
    stored metric history from metrics.js; no external libs.
 
    Depends on: dom.js ($)
-               metrics.js (getMetricHistory)
+               metrics.js (getMetricHistory, getSimEvents)
                map-data.js (QLEN)
-               scenario-data.js (STAT_EVENTS)
 ========================================================= */
 
 var statsChart=$('statsChart'), scc=statsChart.getContext('2d');
@@ -61,13 +60,12 @@ function drawStatsChart(){
     scc.fillText(_chartMonth(mo),mx,bottom+3);
   }
 
-  /* subtle event markers (norovirus / agency / incident) */
-  if(typeof STAT_EVENTS!=='undefined'){
-    scc.fillStyle='rgba(233,180,76,0.20)';
-    for(var e=0;e<STAT_EVENTS.length;e++){
-      var ex=Math.round(left+(STAT_EVENTS[e].t/QLEN)*plotW);
-      scc.fillRect(ex,top,1,plotH);
-    }
+  /* subtle markers at the current quarter's timed events */
+  var qEvents=getSimEvents();
+  scc.fillStyle='rgba(233,180,76,0.20)';
+  for(var e=0;e<qEvents.length;e++){
+    var ex=Math.round(left+(qEvents[e].t/QLEN)*plotW);
+    scc.fillRect(ex,top,1,plotH);
   }
 
   /* one line per series, straight from the stored history */

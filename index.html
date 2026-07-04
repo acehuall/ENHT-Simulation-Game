@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="src/css/base.css">
 <link rel="stylesheet" href="src/css/layout.css">
 <link rel="stylesheet" href="src/css/ui.css">
+<link rel="stylesheet" href="src/report/round-end-report.css">
 </head>
 <body>
 <div class="wrap">
@@ -17,7 +18,8 @@
       <h1>NORTHBROOK GENERAL HOSPITAL</h1>
       <div class="sub">TRUST IN BALANCE - SIMULATION VIEW (PHASE B MOCK)</div>
     </div>
-    <div class="chip">Q1 - WINTER PRESSURE</div>
+    <!-- quarter chip text is set from QUARTERS data (quarter-ui.js) -->
+    <div class="chip" id="hdrChip"></div>
   </div>
 
   <div class="stage">
@@ -33,14 +35,14 @@
           <div id="toast"></div>
           <div id="banner">
             <div class="bar"></div>
-            <div class="mid"><div>Q1 &middot; WINTER PRESSURE<br><b>the board has decided: AGENCY COVER</b></div></div>
+            <div class="mid"><div id="bannerMsg"></div></div>
             <div class="bar"></div>
           </div>
           <div id="dim"></div>
           <div id="stamp"><div>QUARTER CLOSED</div></div>
         </div>
         <div class="prog">
-          <span class="pq">Q1</span>
+          <span class="pq" id="pqLabel"></span>
           <div class="pbar" id="pbar">
             <i id="pfill"></i>
             <span class="monthmark" style="left:33.333%" data-label="M1"></span>
@@ -51,6 +53,7 @@
           <span id="ptime">Month 1</span>
         </div>
         <div class="sceneNav">
+          <button class="btn" id="btnReadReport" hidden>Read Board Report</button>
           <button class="btn" id="btnPrevScene">Back</button>
           <button class="btn" id="btnNextScene">Forward</button>
         </div>
@@ -59,21 +62,21 @@
       <div class="panel">
         <h2>BOARD METRICS</h2>
         <div class="tick"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">&mdash;</span></div>
-        <div class="tick"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
+        <div class="tick"><span class="tl">PAT MET</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
         <div class="tick"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">&mdash;</span></div>
         <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">&mdash;</span></div>
         <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">&mdash;</span></div>
         <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">&mdash;</span></div>
         <div class="chartbox">
           <div class="chartlegend" aria-label="Board metric chart legend">
-            <span><i class="chartlegend-waiting"></i>WAITING</span>
+            <span><i class="chartlegend-waiting"></i>PAT MET</span>
             <span><i class="chartlegend-patsat"></i>PAT SAT</span>
             <span><i class="chartlegend-morale"></i>MORALE</span>
             <span><i class="chartlegend-safety"></i>SAFETY</span>
             <span><i class="chartlegend-rep"></i>REP</span>
           </div>
           <canvas id="statsChart" width="220" height="120"></canvas>
-          <div class="ekgcap">BOARD METRIC TREND - Q1</div>
+          <div class="ekgcap" id="chartCap"></div>
         </div>
         <div class="ekgbox">
           <canvas id="ekg" width="220" height="46"></canvas>
@@ -90,6 +93,7 @@
     <label class="ck"><input type="checkbox" id="ckLabels" checked> Labels</label>
     <label class="ck"><input type="checkbox" id="ckGrid"> Grid</label>
     <label class="ck"><input type="checkbox" id="ckScan" checked> Scanlines</label>
+    <label class="ck">Quarter <select id="devQuarter" class="btn"></select></label>
     <span class="note">30&times;17 tiles &middot; 32px &middot; 960&times;544 internal &middot; &times;2 &asymp; 1080p fullscreen</span>
   </div>
 
@@ -118,6 +122,9 @@
 <script src="src/ui/telemetry.js"></script>
 <script src="src/ui/stats-chart.js"></script>
 <script src="src/engine/simulation.js"></script>
+<script src="src/report/report-graphs.js"></script>
+<script src="src/report/round-end-report.js"></script>
+<script src="src/ui/quarter-ui.js"></script>
 <script src="src/main.js"></script>
 </body>
 </html>

@@ -21,6 +21,7 @@ function setScene(scene){
   $('btnNextScene').disabled=showingBoardRoom;
   $('btnPrevScene').textContent='Back';
   $('btnNextScene').textContent='Forward';
+  $('btnReadReport').hidden=!showingBoardRoom;
   if(showingBoardRoom){
     paused=true;
     syncPauseButton();

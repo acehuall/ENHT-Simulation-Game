@@ -1,46 +1,29 @@
 'use strict';
-/* ---------- board metric definitions ---------- */
-/* order here IS the ticker order (v0..v5 / d0..d5) */
+/* =========================================================
+   BOARD METRIC DEFINITIONS
+   The six core stats. Order here IS the ticker order
+   (v0..v5 / d0..d5 in index.html) and the report row order.
+
+   - start:  the value the game begins with in Q1
+             (later quarters start from the post-decision
+              stats via setMetricStarts in metrics.js)
+   - min/max: clamp range, also scales the report page-1 bars
+   - money:  render as £m instead of points
+   - goodUp: whether an increase is good (colours deltas/chips)
+
+   NOTE: 'waiting' is "% of patients met within 18 weeks",
+   so HIGHER is BETTER for every metric, including budget.
+
+   Per-quarter scenario content (events, options, graphs)
+   lives in src/data/quarters-data.js.
+========================================================= */
 var METRIC_DEFS = [
-  {key:'budget', label:'BUDGET', money:true, start:0,  min:-5, max:2},
-  {key:'waiting',label:'WAITING',            start:68, min:0,  max:100},
-  {key:'patsat', label:'PAT SAT',            start:63, min:0,  max:100},
-  {key:'morale', label:'MORALE',             start:58, min:0,  max:100},
-  {key:'safety', label:'SAFETY',             start:66, min:0,  max:100},
-  {key:'rep',    label:'REP',                start:60, min:0,  max:100}
-];
-
-/* ---------- timed scenario events ---------- */
-/* effects are applied as short gradual transitions (see metrics.js) */
-var STAT_EVENTS = [
-  {
-    t:8, name:'Norovirus outbreak',
-    toast:'&#9888; 3 nurses off sick &mdash; norovirus',
-    effects:{ waiting:+6, patsat:-3, morale:-5, safety:-4, rep:-1 }
-  },
-  {
-    t:18, name:'Agency cover arrives',
-    toast:'&#10010; Agency cover arrives',
-    effects:{ budget:-1.8, waiting:-5, patsat:+2, morale:+3, safety:+3, rep:+1 }
-  },
-  {
-    t:28, name:'Ward 4 incident',
-    toast:'&#9888; Incident reported &mdash; Ward 4',
-    effects:{ waiting:+2, patsat:-4, morale:-3, safety:-9, rep:-5 }
-  }
-];
-
-/* ---------- toasts derived from the events (single source of truth) ---------- */
-var TOASTS = STAT_EVENTS.map(function(e){ return {t:e.t, msg:e.toast}; });
-
-/* ---------- legacy ticker table (superseded by METRIC_DEFS + STAT_EVENTS) ---------- */
-var TICKS=[
-  {s:0,  e:-1.8, money:true},
-  {s:68, e:69},
-  {s:63, e:65},
-  {s:58, e:61},
-  {s:66, e:68},
-  {s:60, e:60}
+  {key:'budget', label:'BUDGET',  money:true, goodUp:true, start:0,  min:-8, max:8},
+  {key:'waiting',label:'PAT MET',             goodUp:true, start:68, min:0,  max:100},
+  {key:'patsat', label:'PAT SAT',             goodUp:true, start:63, min:0,  max:100},
+  {key:'morale', label:'MORALE',              goodUp:true, start:58, min:0,  max:100},
+  {key:'safety', label:'SAFETY',              goodUp:true, start:66, min:0,  max:100},
+  {key:'rep',    label:'REP',                 goodUp:true, start:60, min:0,  max:100}
 ];
 
 function fmtMoney(v){ return (v<-0.05?'&#8722;':'')+'£'+Math.abs(v).toFixed(1)+'m'; }

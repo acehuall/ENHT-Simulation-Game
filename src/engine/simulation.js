@@ -68,11 +68,11 @@ function render(){
     st.firstElementChild.style.transform='rotate(-7deg) scale('+(2.2-1.2*sp)+')';
   }else{ $('dim').style.opacity=0; st.style.opacity=0; }
 
-  /* toasts */
-  var tActive=null;
-  for(var q=0;q<TOASTS.length;q++) if(simT>=TOASTS[q].t && simT<TOASTS[q].t+5.5) tActive=TOASTS[q];
+  /* toasts — from the current quarter's timed simEvents */
+  var evs=getSimEvents(), tActive=null;
+  for(var q=0;q<evs.length;q++) if(simT>=evs[q].t && simT<evs[q].t+5.5) tActive=evs[q];
   var toastEl=$('toast');
-  if(tActive){ toastEl.innerHTML=tActive.msg; toastEl.style.opacity=1; } else toastEl.style.opacity=0;
+  if(tActive){ toastEl.innerHTML=tActive.toast; toastEl.style.opacity=1; } else toastEl.style.opacity=0;
 
   /* progress + tickers */
   var progress=(simT/QLEN*100);

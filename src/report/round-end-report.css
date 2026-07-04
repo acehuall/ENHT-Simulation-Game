@@ -45,6 +45,14 @@
   margin-left:auto; border:2px solid var(--line); color:var(--amber);
   font-size:10px; letter-spacing:2px; padding:5px 9px; background:var(--panel);
 }
+.rep-root .rep-qctl{
+  display:flex; align-items:center; gap:6px;
+  color:var(--dim); font-size:10px; letter-spacing:1px; text-transform:uppercase;
+}
+.rep-root .rep-qctl select{
+  background:#1a2030; border:2px solid #333c58; color:#cdd5e6;
+  font-family:inherit; font-size:10px; letter-spacing:1px; padding:4px 6px;
+}
 
 .rep-root .rep-stage{flex:1; width:100%; display:flex; align-items:center; justify-content:center; min-height:0;}
 .rep-root #stack{
@@ -229,6 +237,20 @@
 }
 .rep-root .chip.good{border-color:var(--pgood); color:var(--pgood);}
 .rep-root .chip.bad{border-color:var(--pbad); color:var(--pbad);}
+.rep-root .outcome{
+  margin-top:8px; border:2px solid #141b30; background:#e7ebf4;
+  color:var(--pink); padding:7px 9px; font-size:10.5px; line-height:1.35;
+  max-height:112px; overflow:auto; flex:0 0 auto;
+}
+.rep-root .outcome h3{
+  font-size:11px; letter-spacing:2px; margin-bottom:4px;
+}
+.rep-root .outcome p{margin-bottom:4px;}
+.rep-root .outcomeRows{display:flex; flex-wrap:wrap; gap:4px; margin:4px 0;}
+.rep-root .outcomeRows span{
+  border:1px solid currentColor; background:#f2f5fa; padding:2px 5px;
+  font-size:9px; font-weight:bold; letter-spacing:.5px;
+}
 
 /* tight screens: shave the big fixed text */
 @media (max-height:760px){
@@ -236,4 +258,5 @@
   .rep-root .issueTitle{font-size:20px; margin:8px 0 10px;}
   .rep-root .sumtext p{margin-bottom:5px;}
   .rep-root .content{padding:16px 24px 14px 38px;}
+  .rep-root .outcome{max-height:86px;}
 }

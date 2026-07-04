@@ -1,12 +1,9 @@
 'use strict';
-/* quarter close lingers 5s on the QUARTER CLOSED stamp before the boardroom */
+/* quarter close moves straight to the boardroom when the simulation ends */
 var boardRoomTimer=null;
 function scheduleBoardRoom(){
   cancelBoardRoom();
-  boardRoomTimer=setTimeout(function(){
-    boardRoomTimer=null;
-    setScene('boardRoom');
-  },5000);
+  setScene('boardRoom');
 }
 function cancelBoardRoom(){
   if(boardRoomTimer){ clearTimeout(boardRoomTimer); boardRoomTimer=null; }

@@ -51,6 +51,10 @@
         <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">—</span></div>
         <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">—</span></div>
         <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">—</span></div>
+        <div class="chartbox">
+          <canvas id="statsChart" width="220" height="120"></canvas>
+          <div class="ekgcap">BOARD METRIC TREND — Q1</div>
+        </div>
         <div class="ekgbox">
           <canvas id="ekg" width="220" height="46"></canvas>
           <div class="ekgcap">WARD TELEMETRY — LIVE</div>
@@ -87,8 +91,10 @@
 <script src="src/ui/labels.js"></script>
 <script src="src/ui/legend.js"></script>
 <script src="src/engine/state.js"></script>
+<script src="src/engine/metrics.js"></script>
 <script src="src/ui/controls.js"></script>
 <script src="src/ui/telemetry.js"></script>
+<script src="src/ui/stats-chart.js"></script>
 <script src="src/engine/simulation.js"></script>
 <script src="src/main.js"></script>
 </body>

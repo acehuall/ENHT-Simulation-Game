@@ -38,6 +38,9 @@
 .tick .td{font-size:10px; width:52px; text-align:right;}
 .up{color:var(--green);} .dn{color:var(--red);} .fl{color:var(--dim);}
 
+.chartbox{border:2px solid var(--line); background:#0a0c13; padding:4px; margin-top:6px;}
+.chartbox canvas{width:100%; height:auto; display:block; image-rendering:pixelated;}
+
 .btn{background:#1a2030; border:2px solid #333c58; color:#cdd5e6; padding:6px 12px;
      font-family:inherit; font-size:11px; letter-spacing:1px; text-transform:uppercase; cursor:pointer;}
 .btn:hover{border-color:var(--teal); color:var(--teal);}

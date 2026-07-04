@@ -18,7 +18,7 @@
       <h1>NORTHBROOK GENERAL HOSPITAL</h1>
       <div class="sub">TRUST IN BALANCE - SIMULATION VIEW (PHASE B MOCK)</div>
     </div>
-    <div class="chip">Q1 - WINTER PRESSURE</div>
+    <div class="chip" id="quarterChip">LOADING QUARTER</div>
   </div>
 
   <div class="stage">
@@ -28,21 +28,21 @@
           <canvas id="cv" width="960" height="544"></canvas>
           <div id="boardRoom" aria-hidden="true">
             <img src="src/Assets/BoardRoom Image.png" alt="">
-            <button class="btn" id="btnReadReport">&#128196; READ REPORT</button>
+            <button class="btn" id="btnReadReport">READ REPORT</button>
           </div>
           <div id="labels"></div>
           <div id="scan"></div>
           <div id="toast"></div>
           <div id="banner">
             <div class="bar"></div>
-            <div class="mid"><div id="bannerMsg">Q1 &middot; WINTER PRESSURE<br><b>THE QUARTER BEGINS</b></div></div>
+            <div class="mid"><div id="bannerMsg">LOADING QUARTER<br><b>THE QUARTER BEGINS</b></div></div>
             <div class="bar"></div>
           </div>
           <div id="dim"></div>
           <div id="stamp"><div>QUARTER CLOSED</div></div>
         </div>
         <div class="prog">
-          <span class="pq">Q1</span>
+          <span class="pq" id="quarterTrackLabel">Q</span>
           <div class="timewrap" id="timewrap">
             <div class="pbar" id="pbar">
               <i id="pfill"></i>
@@ -63,21 +63,21 @@
       <div class="panel">
         <h2>BOARD METRICS</h2>
         <div class="tick"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">&mdash;</span></div>
-        <div class="tick"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
+        <div class="tick"><span class="tl">PATIENTS</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
         <div class="tick"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">&mdash;</span></div>
         <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">&mdash;</span></div>
         <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">&mdash;</span></div>
         <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">&mdash;</span></div>
         <div class="chartbox">
           <div class="chartlegend" aria-label="Board metric chart legend">
-            <span><i class="chartlegend-waiting"></i>WAITING</span>
+            <span><i class="chartlegend-waiting"></i>PATIENTS</span>
             <span><i class="chartlegend-patsat"></i>PAT SAT</span>
             <span><i class="chartlegend-morale"></i>MORALE</span>
             <span><i class="chartlegend-safety"></i>SAFETY</span>
             <span><i class="chartlegend-rep"></i>REP</span>
           </div>
           <canvas id="statsChart" width="220" height="120"></canvas>
-          <div class="ekgcap">BOARD METRIC TREND - Q1</div>
+          <div class="ekgcap" id="metricTrendCaption">BOARD METRIC TREND</div>
         </div>
         <div class="ekgbox">
           <canvas id="ekg" width="220" height="46"></canvas>
@@ -90,7 +90,14 @@
   <div class="ctrl">
     <button class="btn" id="btnPause">Pause</button>
     <button class="btn" id="btnRestart">Restart Q</button>
+    <button class="btn" id="btnNextQuarter">Next Q</button>
     <button class="btn" id="btnFs">Fullscreen</button>
+    <label class="ck quarterControl">Quarter
+      <select id="quarterSelect" aria-label="Debug quarter selector"></select>
+    </label>
+    <label class="ck quarterControl">Decision
+      <select id="optionSelect" aria-label="Debug board decision selector"></select>
+    </label>
     <label class="ck"><input type="checkbox" id="ckLabels" checked> Labels</label>
     <label class="ck"><input type="checkbox" id="ckGrid"> Grid</label>
     <label class="ck"><input type="checkbox" id="ckScan" checked> Scanlines</label>
@@ -113,8 +120,9 @@
 <script src="src/engine/pathing.js"></script>
 <script src="src/data/agents-data.js"></script>
 <script src="src/engine/agent-renderer.js"></script>
-<script src="src/data/scenario-data.js"></script>
 <script src="src/data/quarters-data.js"></script>
+<script src="src/data/scenario-data.js"></script>
+<script src="src/data/quarter-events.js"></script>
 <script src="src/engine/game-state.js"></script>
 <script src="src/ui/dom.js"></script>
 <script src="src/ui/labels.js"></script>

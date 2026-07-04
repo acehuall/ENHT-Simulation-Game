@@ -1,13 +1,14 @@
 'use strict';
 /* ---------- board metric definitions ---------- */
 /* order here IS the ticker order (v0..v5 / d0..d5) */
+/* goodUp: true when a rising value is good news (waiting is the exception) */
 var METRIC_DEFS = [
-  {key:'budget', label:'BUDGET', money:true, start:0,  min:-5, max:2},
-  {key:'waiting',label:'WAITING',            start:68, min:0,  max:100},
-  {key:'patsat', label:'PAT SAT',            start:63, min:0,  max:100},
-  {key:'morale', label:'MORALE',             start:58, min:0,  max:100},
-  {key:'safety', label:'SAFETY',             start:66, min:0,  max:100},
-  {key:'rep',    label:'REP',                start:60, min:0,  max:100}
+  {key:'budget', label:'BUDGET', money:true, goodUp:true,  start:0,  min:-5, max:2},
+  {key:'waiting',label:'WAITING',            goodUp:false, start:68, min:0,  max:100},
+  {key:'patsat', label:'PAT SAT',            goodUp:true,  start:63, min:0,  max:100},
+  {key:'morale', label:'MORALE',             goodUp:true,  start:58, min:0,  max:100},
+  {key:'safety', label:'SAFETY',             goodUp:true,  start:66, min:0,  max:100},
+  {key:'rep',    label:'REP',                goodUp:true,  start:60, min:0,  max:100}
 ];
 
 /* ---------- timed scenario events ---------- */

@@ -21,6 +21,15 @@ var _lastSampleT = -1;     /* sim time of the last history sample */
 var METRIC_SAMPLE_DT  = 0.5;  /* seconds between history samples   */
 var METRIC_EVENT_RAMP = 3.0;  /* seconds an event effect ramps in  */
 
+var METRIC_BASE = null;  /* per-key start overrides set by board decisions */
+
+/* board decisions carry the metrics into the next quarter: the engine keeps
+   replaying STAT_EVENTS, but from these starting values instead of def.start */
+function setMetricStarts(map){ METRIC_BASE = map; }
+function _metricStartOf(def){
+  return (METRIC_BASE && METRIC_BASE.hasOwnProperty(def.key)) ? METRIC_BASE[def.key] : def.start;
+}
+
 function _metricDef(key){
   for(var i=0;i<METRIC_DEFS.length;i++){ if(METRIC_DEFS[i].key===key) return METRIC_DEFS[i]; }
   return null;
@@ -34,7 +43,7 @@ function _metricSnapshotAt(t){
   var s={t:t};
   for(var i=0;i<METRIC_DEFS.length;i++){
     var def=METRIC_DEFS[i];
-    s[def.key]=def.start;
+    s[def.key]=_metricStartOf(def);
   }
   for(var e=0;e<STAT_EVENTS.length;e++){
     var ev=STAT_EVENTS[e], p=clamp((t-ev.t)/METRIC_EVENT_RAMP,0,1);
@@ -68,8 +77,8 @@ function resetMetrics(){
   METRIC_CUR={}; METRIC_START={};
   for(var i=0;i<METRIC_DEFS.length;i++){
     var def=METRIC_DEFS[i];
-    METRIC_CUR[def.key]=def.start;
-    METRIC_START[def.key]=def.start;
+    METRIC_CUR[def.key]=_metricStartOf(def);
+    METRIC_START[def.key]=_metricStartOf(def);
   }
   METRIC_HISTORY=[];
   METRIC_TRANS=[];

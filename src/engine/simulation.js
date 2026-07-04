@@ -2,7 +2,7 @@
 /* ---------- main loop ---------- */
 var prevSimT=0;
 function render(){
-  var simT=clock%QLEN;
+  var simT=Math.min(clock,QLEN);
   if(simT<prevSimT) resetMetrics();   /* quarter looped back to the start */
   prevSimT=simT;
   updateMetrics(simT);
@@ -62,7 +62,7 @@ function render(){
   /* quarter close */
   var st=$('stamp');
   if(simT>=38){
-    $('dim').style.opacity=Math.min(1,(simT-38)/0.8)*0.55;
+    $('dim').style.opacity=Math.min(1,(simT-38)/0.8);
     var sp=clamp((simT-38.2)/0.3,0,1);
     st.style.opacity=sp;
     st.firstElementChild.style.transform='rotate(-7deg) scale('+(2.2-1.2*sp)+')';
@@ -75,8 +75,11 @@ function render(){
   if(tActive){ toastEl.innerHTML=tActive.msg; toastEl.style.opacity=1; } else toastEl.style.opacity=0;
 
   /* progress + tickers */
-  $('pfill').style.width=(simT/QLEN*100)+'%';
-  $('ptime').textContent='0:'+('0'+Math.floor(simT)).slice(-2);
+  var progress=(simT/QLEN*100);
+  $('pfill').style.width=progress+'%';
+  $('pbar').style.setProperty('--scrub-x',progress+'%');
+  $('pscrub').value=simT;
+  $('ptime').textContent=simMonthLabel(simT);
   var defs=getMetricDefs();
   for(var ti=0;ti<defs.length;ti++){
     var def=getMetricByIndex(ti), v=getMetricValue(def.key), d=getMetricDelta(def.key);
@@ -95,7 +98,16 @@ function render(){
 
 function frame(now){
   var dt=Math.min(0.05,(now-last)/1000); last=now;
-  if(!paused) clock+=dt;
+  if(!paused){
+    clock+=dt;
+    if(clock>=QLEN){
+      clock=QLEN;
+      quarterComplete=true;
+      paused=true;
+      if(typeof syncPauseButton==='function') syncPauseButton();
+      if(typeof setScene==='function') setScene('boardRoom');
+    }
+  }
   render();
   requestAnimationFrame(frame);
 }

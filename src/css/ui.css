@@ -94,3 +94,71 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .leg pre{background:#0a0c13; border:1px solid var(--line); padding:10px; font-size:11px;
          line-height:1.35; letter-spacing:2px; color:#aab4c8; overflow:auto; margin-top:8px;}
 .leg b{color:var(--ink);}
+
+.rep-root[hidden]{display:none;}
+.rep-root{
+  position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
+  background:rgba(5,7,12,.86); padding:18px; color:var(--ink);
+}
+.rep-modal{
+  width:min(1060px,96vw); max-height:94vh; display:flex; flex-direction:column; gap:10px;
+  border:2px solid var(--line); background:#101522; box-shadow:0 10px 0 #05070c;
+}
+.rep-top,.rep-foot{display:flex; align-items:center; gap:12px; padding:10px 12px;}
+.rep-top{border-bottom:2px solid var(--line);}
+.rep-top h2{font-size:14px; letter-spacing:2px;}
+.rep-sub,.pgind,.decision{font-size:10px; color:var(--dim); letter-spacing:1px;}
+.rep-foot{border-top:2px solid var(--line);}
+.rep-foot .decision{color:var(--amber); margin-left:auto;}
+.rep-pages{min-height:0; overflow:auto; padding:12px;}
+.rep-page[hidden]{display:none;}
+.rep-paper{
+  background:#dfe5f0; color:#1a2236; border:2px solid #141b30; min-height:520px;
+  padding:18px; display:flex; flex-direction:column; gap:14px;
+}
+.rep-page-head{display:flex; align-items:center; gap:12px; border-bottom:4px solid #23c4b4; padding-bottom:8px;}
+.rep-page-head span{background:#141b30; color:#e8ecf5; padding:6px 10px; font-weight:bold;}
+.rep-page-head h3{font-size:20px; letter-spacing:3px; text-transform:uppercase;}
+.rep-grid.two{display:grid; grid-template-columns:1fr 1fr; gap:14px; min-height:0;}
+.rep-paper h4{font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px;}
+.rep-paper p{font-size:12px; line-height:1.5; margin-bottom:8px;}
+.rep-bars{height:250px; display:flex; align-items:flex-end; gap:6px; border-left:3px solid #141b30; border-bottom:3px solid #141b30; padding:8px;}
+.rep-bar-group{flex:1; height:100%; display:flex; align-items:flex-end; justify-content:center; gap:5px;}
+.rep-bar{display:block; width:18px; min-height:4px; border:2px solid #141b30;}
+.rep-bar.last{background:#98a3bd;}
+.rep-bar.cur{background:#23c4b4;}
+.rep-x{display:flex; padding-left:12px; margin-top:5px;}
+.rep-x span{flex:1; text-align:center; font-size:9px; color:#4a5470;}
+.rep-metric-list{display:flex; flex-direction:column; gap:6px; margin-top:12px;}
+.rep-metric-row{display:flex; align-items:center; gap:8px; background:#eef2f8; border:1px solid #c3cbdc; padding:6px 8px; font-size:12px;}
+.rep-metric-row b{letter-spacing:1px;}
+.rep-metric-row span{margin-left:auto; font-weight:bold;}
+.rep-metric-row i{font-style:normal; width:62px; text-align:right; font-weight:bold;}
+.rep-alert{border:2px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:8px 10px; font-size:11px; font-weight:bold; letter-spacing:1px;}
+.rep-issue-title{font-size:24px !important; margin:2px 0 4px;}
+#repIssueChart{width:100%; height:auto; border:2px solid #141b30; image-rendering:pixelated;}
+.rep-risk{border:2px solid #c23434; background:#f4dcdc; color:#8c2222; padding:8px; font-weight:bold;}
+.rep-options{display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1;}
+.rep-option{
+  border:2px solid #141b30; background:#f5f7fb; color:#1a2236; padding:10px;
+  text-align:left; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; gap:7px;
+}
+.rep-option:hover,.rep-option.selected{border-color:#23c4b4; box-shadow:inset 0 0 0 2px #23c4b4;}
+.rep-option h4{padding-right:0; margin:0;}
+.rep-procon{display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; font-size:10px; line-height:1.35;}
+.rep-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:auto;}
+.rep-chips i{
+  font-style:normal; border:1px solid #141b30; background:#e2e7f2; padding:3px 6px;
+  font-size:9px; font-weight:bold; letter-spacing:1px;
+}
+.rep-root .good{color:#1e8f4e;}
+.rep-root .bad{color:#c23434;}
+.rep-root .flat{color:#4a5470;}
+.rep-outcome{border:2px solid #23c4b4; background:#e9f6f4; padding:10px; margin-top:10px;}
+
+@media (max-width:760px){
+  .rep-grid.two,.rep-options{grid-template-columns:1fr;}
+  .rep-paper{min-height:0;}
+  .rep-foot{flex-wrap:wrap;}
+  .rep-foot .decision{margin-left:0; width:100%;}
+}

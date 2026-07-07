@@ -7,7 +7,7 @@
    Depends on: dom.js ($)
                metrics.js (getMetricHistory)
                map-data.js (QLEN)
-               scenario-data.js (STAT_EVENTS)
+               timeline-compiler.js (getTimelineStatEvents)
 ========================================================= */
 
 var statsChart=$('statsChart'), scc=statsChart.getContext('2d');
@@ -61,11 +61,12 @@ function drawStatsChart(){
     scc.fillText(_chartMonth(mo),mx,bottom+3);
   }
 
-  /* subtle event markers (norovirus / agency / incident) */
-  if(typeof STAT_EVENTS!=='undefined'){
+  /* subtle event markers from the compiled timeline */
+  if(typeof getTimelineStatEvents==='function'){
+    var events=getTimelineStatEvents();
     scc.fillStyle='rgba(233,180,76,0.20)';
-    for(var e=0;e<STAT_EVENTS.length;e++){
-      var ex=Math.round(left+(STAT_EVENTS[e].t/QLEN)*plotW);
+    for(var e=0;e<events.length;e++){
+      var ex=Math.round(left+(events[e].t/QLEN)*plotW);
       scc.fillRect(ex,top,1,plotH);
     }
   }

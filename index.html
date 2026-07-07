@@ -86,6 +86,7 @@
   <div class="ctrl">
     <button class="btn" id="btnPause">Pause</button>
     <button class="btn" id="btnRestart">Restart Q</button>
+    <button class="btn" id="btnReport">Board Pack</button>
     <button class="btn" id="btnFs">Fullscreen</button>
     <label class="ck quarterControl">Quarter
       <select id="quarterSelect" aria-label="Debug quarter selector">
@@ -107,6 +108,7 @@
   </details>
 
 </div>
+<div id="repRoot" class="rep-root" hidden></div>
 <script src="src/data/map-data.js"></script>
 <script src="src/engine/canvas.js"></script>
 <script src="src/engine/map-renderer.js"></script>
@@ -117,6 +119,7 @@
 <script src="src/data/scenario-data.js"></script>
 <script src="src/data/quarters-data.js"></script>
 <script src="src/data/quarter-events.js"></script>
+<script src="src/data/outcome-drama-data.js"></script>
 <script src="src/engine/game-state.js"></script>
 <script src="src/ui/dom.js"></script>
 <script src="src/ui/labels.js"></script>
@@ -124,9 +127,12 @@
 <script src="src/engine/state.js"></script>
 <script src="src/engine/patient-state.js"></script>
 <script src="src/engine/metrics.js"></script>
+<script src="src/engine/timeline-compiler.js"></script>
+<script src="src/engine/timeline-visuals.js"></script>
 <script src="src/ui/controls.js"></script>
 <script src="src/ui/telemetry.js"></script>
 <script src="src/ui/stats-chart.js"></script>
+<script src="src/ui/report-overlay.js"></script>
 <script src="src/engine/simulation.js"></script>
 <script src="src/main.js"></script>
 </body>

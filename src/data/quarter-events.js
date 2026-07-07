@@ -13,6 +13,7 @@ var QUARTER_EVENTS = {
     eventName: 'Infection Pressure',
     displayName: 'Q1 - INFECTION PRESSURE',
     bannerLine: 'INFECTION PRESSURE',
+    patientSpawnMult: 1.5,
     patientIllnessTint: true,
     patientIllness: {
       spawnState: 'ill',
@@ -23,6 +24,10 @@ var QUARTER_EVENTS = {
       treatmentZoneTiles: ['v', 'w', 'i', 'g']
     },
     visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.5, tint:'ill'},
+      {type:'wardIncidentFlash', t0:27, t1:33, tile:[7,14], severity:'medium'}
+    ],
     pressureEvents: ['norovirus_outbreak', 'ward_4_incident'],
     reportContentKey: 'infectionPressure'
   },
@@ -32,8 +37,13 @@ var QUARTER_EVENTS = {
     eventName: 'Capacity Strain',
     displayName: 'Q2 - CAPACITY STRAIN',
     bannerLine: 'CAPACITY STRAIN',
+    patientSpawnMult: 1.3,
     patientIllnessTint: false,
     visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.3},
+      {type:'corridorTrolleys', t0:0, t1:45}
+    ],
     pressureEvents: [],
     reportContentKey: 'capacityStrain'
   },
@@ -43,10 +53,11 @@ var QUARTER_EVENTS = {
     eventName: 'Media Pressure',
     displayName: 'Q3 - MEDIA PRESSURE',
     bannerLine: 'MEDIA PRESSURE',
+    patientSpawnMult: 1.0,
     patientIllnessTint: false,
-    visualNPCs: [
-      {type: 'reporter', x: 12.6, y: 15.15, prop: 'microphone', facing: 1},
-      {type: 'reporter', x: 17.4, y: 15.15, prop: 'camera', facing: -1}
+    visualNPCs: [],
+    ambientVisuals: [
+      {type:'pressScrum', t0:0, t1:45, count:4, flashLights:true}
     ],
     pressureEvents: ['media_attention'],
     reportContentKey: 'mediaPressure'
@@ -57,8 +68,14 @@ var QUARTER_EVENTS = {
     eventName: 'Winter Surge',
     displayName: 'Q4 - WINTER SURGE',
     bannerLine: 'WINTER SURGE',
+    patientSpawnMult: 1.6,
     patientIllnessTint: false,
     visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.6},
+      {type:'snowfall', t0:0, t1:45},
+      {type:'ambulanceDivert', t0:9, t1:22}
+    ],
     pressureEvents: [],
     reportContentKey: 'winterSurge'
   }

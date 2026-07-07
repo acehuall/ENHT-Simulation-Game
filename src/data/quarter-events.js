@@ -1,58 +1,94 @@
 'use strict';
-/* ---------- quarter-specific simulation theatre configuration ----------
-   Text, options, stat impacts and report content live in quarters-data.js.
-   Keep this file for optional visual layers only: illness tinting, NPCs,
-   pressure-event ids, and future scene props.
+/* ---------- quarter-specific simulation event configuration ----------
+   This is the extension point for Q1-Q4 visual layers, NPCs, pressure
+   events, and future report-page content. Rendering/simulation code should
+   read from this object instead of hard-coding behaviour for a single quarter.
 ------------------------------------------------------------------------ */
-var QUARTER_EVENT_IDS = QUARTER_IDS.slice();
+var QUARTER_EVENT_IDS = ['Q1', 'Q2', 'Q3', 'Q4'];
 
-var QUARTER_VISUALS = {
+var QUARTER_EVENTS = {
   Q1: {
-    patientIllnessTint:true,
-    patientIllness:{
-      spawnState:'ill',
-      untreatedTint:0.68,
-      inTreatmentTint:0.32,
-      treatedTint:0.12,
-      treatmentCapacityAvailable:true,
-      treatmentZoneTiles:['v','w','i','g']
+    id: 'Q1',
+    label: 'Q1',
+    eventName: 'Infection Pressure',
+    displayName: 'Q1 - INFECTION PRESSURE',
+    bannerLine: 'INFECTION PRESSURE',
+    patientSpawnMult: 1.5,
+    patientIllnessTint: true,
+    patientIllness: {
+      spawnState: 'ill',
+      untreatedTint: 0.68,
+      inTreatmentTint: 0.32,
+      treatedTint: 0.12,
+      treatmentCapacityAvailable: true,
+      treatmentZoneTiles: ['v', 'w', 'i', 'g']
     },
-    visualNPCs:[],
-    pressureEvents:['flu_surge','corridor_care_warning']
+    visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.5, tint:'ill'},
+      {type:'wardIncidentFlash', t0:27, t1:33, tile:[7,14], severity:'medium'}
+    ],
+    pressureEvents: ['norovirus_outbreak', 'ward_4_incident'],
+    reportContentKey: 'infectionPressure'
   },
   Q2: {
-    patientIllnessTint:false,
-    visualNPCs:[],
-    pressureEvents:['savings_gap']
+    id: 'Q2',
+    label: 'Q2',
+    eventName: 'Capacity Strain',
+    displayName: 'Q2 - CAPACITY STRAIN',
+    bannerLine: 'CAPACITY STRAIN',
+    patientSpawnMult: 1.3,
+    patientIllnessTint: false,
+    visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.3},
+      {type:'corridorTrolleys', t0:0, t1:45}
+    ],
+    pressureEvents: [],
+    reportContentKey: 'capacityStrain'
   },
   Q3: {
-    patientIllnessTint:false,
-    visualNPCs:[
-      {type:'reporter', x:12.6, y:15.15, prop:'microphone', facing:1},
-      {type:'reporter', x:17.4, y:15.15, prop:'camera', facing:-1}
+    id: 'Q3',
+    label: 'Q3',
+    eventName: 'Media Pressure',
+    displayName: 'Q3 - MEDIA PRESSURE',
+    bannerLine: 'MEDIA PRESSURE',
+    patientSpawnMult: 1.0,
+    patientIllnessTint: false,
+    visualNPCs: [],
+    ambientVisuals: [
+      {type:'pressScrum', t0:0, t1:45, count:4, flashLights:true}
     ],
-    pressureEvents:['maternity_safety_concern']
+    pressureEvents: ['media_attention'],
+    reportContentKey: 'mediaPressure'
   },
   Q4: {
-    patientIllnessTint:false,
-    visualNPCs:[],
-    pressureEvents:['waiting_list_funding']
+    id: 'Q4',
+    label: 'Q4',
+    eventName: 'Winter Surge',
+    displayName: 'Q4 - WINTER SURGE',
+    bannerLine: 'WINTER SURGE',
+    patientSpawnMult: 1.6,
+    patientIllnessTint: false,
+    visualNPCs: [],
+    ambientVisuals: [
+      {type:'patientSurge', t0:0, t1:45, mult:1.6},
+      {type:'snowfall', t0:0, t1:45},
+      {type:'ambulanceDivert', t0:9, t1:22}
+    ],
+    pressureEvents: [],
+    reportContentKey: 'winterSurge'
   }
 };
 
+var _quarterEventWarned={};
 function getQuarterEventConfig(quarterId){
-  var quarter=getQuarterById(quarterId);
-  var visual=QUARTER_VISUALS[quarter.id] || {};
-  return {
-    id:quarter.id,
-    label:quarter.label,
-    eventName:quarter.title,
-    displayName:quarter.displayName,
-    bannerLine:quarter.title.toUpperCase(),
-    patientIllnessTint:!!visual.patientIllnessTint,
-    patientIllness:visual.patientIllness || null,
-    visualNPCs:visual.visualNPCs || [],
-    pressureEvents:visual.pressureEvents || [],
-    reportContentKey:quarter.page2GraphType
-  };
+  if(QUARTER_EVENTS[quarterId]) return QUARTER_EVENTS[quarterId];
+  if(!_quarterEventWarned[quarterId]){
+    _quarterEventWarned[quarterId]=true;
+    if(typeof console!=='undefined' && console.warn){
+      console.warn('[quarter-events] unknown quarter id "'+quarterId+'" - falling back to Q1 visuals');
+    }
+  }
+  return QUARTER_EVENTS.Q1;
 }

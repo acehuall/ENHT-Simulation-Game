@@ -1,3 +1,3 @@
 'use strict';
 var paused=false, clock=0, last=performance.now();
-var currentScene='simulation', quarterComplete=false;
+var currentScene='simulation', quarterComplete=false, reportOpenedForQuarter=false;

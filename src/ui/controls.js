@@ -1,22 +1,27 @@
 'use strict';
-/* quarter close moves straight to the boardroom when the simulation ends */
-var boardRoomTimer=null;
-function scheduleBoardRoom(){
-  cancelBoardRoom();
-  setScene('boardRoom');
-}
-function cancelBoardRoom(){
-  if(boardRoomTimer){ clearTimeout(boardRoomTimer); boardRoomTimer=null; }
+function escapeHTML(s){
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(ch){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
+  });
 }
 
 function seekSimulation(t){
   var target=clamp(Number(t)||0,0,QLEN);
-  cancelBoardRoom();
   clock=target;
   prevSimT=target;
   quarterComplete=target>=QLEN;
+  if(target<QLEN) reportOpenedForQuarter=false;
   resetMetrics();
   updateMetrics(target);
+  syncBoardPackButton();
+}
+
+function syncBoardPackButton(){
+  var btn=$('btnReport');
+  if(!btn) return;
+  var openable=typeof canOpenBoardPack==='function' ? canOpenBoardPack() : true;
+  btn.disabled=!openable;
+  btn.title=openable ? '' : 'Available when the quarter ends';
 }
 
 function syncPauseButton(){
@@ -43,40 +48,25 @@ function populateQuarterControls(){
   if(!sel) return;
   for(i=0;i<QUARTERS.length;i++){
     q=QUARTERS[i];
-    html.push('<option value="'+q.id+'">'+q.label+' - '+q.title+'</option>');
-  }
-  sel.innerHTML=html.join('');
-}
-
-function populateOptionControls(){
-  var sel=$('optionSelect'), q=getCurrentQuarter(), html=[], i, o;
-  if(!sel) return;
-  for(i=0;i<q.options.length;i++){
-    o=q.options[i];
-    html.push('<option value="'+o.id+'">'+o.label+' - '+o.title+'</option>');
+    html.push('<option value="'+q.id+'">'+q.label+' '+q.title+'</option>');
   }
   sel.innerHTML=html.join('');
 }
 
 function syncQuarterControls(){
-  var quarter=getCurrentQuarter();
-  var option=getCurrentOption();
-  var qSel=$('quarterSelect');
-  var oSel=$('optionSelect');
-  if(qSel) qSel.value=quarter.id;
-  if(oSel){
-    populateOptionControls();
-    oSel.value=option.id;
+  var quarterEvent=getCurrentQuarterEvent();
+  var timeline=getTimeline && getTimeline();
+  var banner=timeline && timeline.banner;
+  var sel=$('quarterSelect');
+  if(sel) sel.value=getCurrentQuarterId();
+  $('quarterChip').textContent=quarterEvent.displayName;
+  $('quarterTrackLabel').textContent=quarterEvent.label;
+  if(banner){
+    $('bannerQuarter').innerHTML=escapeHTML(banner.quarterLine)+'<br><b>'+escapeHTML(banner.decisionLine)+'</b>';
+  }else{
+    $('bannerQuarter').innerHTML=escapeHTML(quarterEvent.label+' - '+quarterEvent.bannerLine);
   }
-  if($('quarterChip')) $('quarterChip').textContent=quarter.displayName;
-  if($('quarterTrackLabel')) $('quarterTrackLabel').textContent=quarter.label;
-  if($('bannerMsg')){
-    $('bannerMsg').innerHTML=quarter.label+' &middot; '+quarter.title.toUpperCase()+
-      '<br><b>BOARD OPTION: '+option.title.toUpperCase()+'</b>';
-  }
-  if($('metricTrendCaption')) $('metricTrendCaption').textContent='BOARD METRIC TREND - '+quarter.label;
-  if($('btnNextQuarter')) $('btnNextQuarter').disabled=!getNextQuarterId(quarter.id);
-  if(typeof setScenarioSelection==='function') setScenarioSelection(quarter.id, option.id);
+  $('metricTrendCaption').textContent='BOARD METRIC TREND - '+quarterEvent.label;
 }
 
 function resetCurrentQuarterSimulation(){
@@ -89,43 +79,36 @@ function resetCurrentQuarterSimulation(){
 
 $('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
 $('btnRestart').onclick=function(){ resetCurrentQuarterSimulation(); };
-$('btnNextQuarter').onclick=function(){
-  if(!advanceToNextQuarter()) return;
-  if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
-  populateOptionControls();
-  syncQuarterControls();
-  resetCurrentQuarterSimulation();
-};
 $('btnFs').onclick=function(){
   var st=document.querySelector('.stage');
   if(document.fullscreenElement){ document.exitFullscreen(); }
   else if(st.requestFullscreen){ st.requestFullscreen().catch(function(){}); }
 };
+if($('btnReport')){
+  $('btnReport').onclick=function(){
+    if(typeof canOpenBoardPack==='function' && !canOpenBoardPack()) return;
+    if(typeof openReport==='function') openReport();
+  };
+}
 $('ckLabels').onchange=function(){ labelsDiv.style.display=this.checked?'':'none'; };
 $('ckScan').onchange=function(){ $('scan').style.display=this.checked?'':'none'; };
 
 var scrub=$('pscrub');
 scrub.max=QLEN;
-scrub.oninput=function(){ seekSimulation(this.value); setScene('simulation'); };
+scrub.oninput=function(){ seekSimulation(this.value); setScene('simulation'); render(); };
 
 $('btnPrevScene').onclick=function(){ setScene('simulation'); };
 $('btnNextScene').onclick=function(){ setScene('boardRoom'); };
 
 $('quarterSelect').onchange=function(){
   setCurrentQuarter(this.value);
-  if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
-  populateOptionControls();
-  syncQuarterControls();
-  resetCurrentQuarterSimulation();
-};
-
-$('optionSelect').onchange=function(){
-  setSelectedOption(this.value);
-  syncQuarterControls();
+  if(typeof setTimelineForCurrentQuarter==='function'){
+    setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter(this.value));
+  }
   resetCurrentQuarterSimulation();
 };
 
 populateQuarterControls();
-populateOptionControls();
 syncQuarterControls();
+syncBoardPackButton();
 setScene('simulation');

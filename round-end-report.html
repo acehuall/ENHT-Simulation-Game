@@ -5,17 +5,129 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Northbrook General - Round End Board Report</title>
 <link rel="stylesheet" href="src/report/round-end-report.css">
-<style>body{background:#0c0e15;}</style>
 </head>
 <body>
 
-<!-- standalone preview of the in-game report overlay: the shell markup is
-     built by round-end-report.js from QUARTERS + METRIC_DEFS/STAT_EVENTS -->
-<div id="repRoot" class="rep-root"></div>
+<div class="rep-hdr">
+  <div class="nsq">N</div>
+  <div>
+    <h1>NORTHBROOK GENERAL HOSPITAL</h1>
+    <div class="sub">QUARTERLY BOARD PACK &middot; CONFIDENTIAL &middot; DRAFT FOR MINUTES</div>
+  </div>
+  <div class="chip">Q1 - WINTER PRESSURE</div>
+</div>
 
-<script src="src/data/quarters-data.js"></script>
-<script src="src/data/scenario-data.js"></script>
-<script src="src/engine/game-state.js"></script>
+<div class="rep-stage">
+  <div id="stack">
+
+    <!-- ============ PAGE 1 : PRIOR QUARTER RESULTS ============ -->
+    <section class="page" id="pg1">
+      <div class="lift">
+        <div class="tab tab1">01</div>
+        <div class="paper">
+          <div class="binder"></div>
+          <div class="content">
+            <div class="pghead">
+              <div class="pgbadge">PAGE 1</div>
+              <div class="pgtitle">
+                <h2>PRIOR QUARTER RESULTS</h2>
+                <div class="sub">Board position against last quarter. Draft text for pack flavour.</div>
+              </div>
+              <div class="pgq">Q1 &middot; 01 / 03</div>
+            </div>
+            <div class="rule"></div><div class="rule teal"></div>
+            <div class="cols">
+              <div class="panelP">
+                <h3>BOARD METRICS &mdash; THIS Q VS LAST Q</h3>
+                <div class="barwrap">
+                  <div class="plot" id="p1Plot"></div>
+                  <div class="xlabels" id="p1X"></div>
+                </div>
+                <div class="blegend">
+                  <span><i class="swl"></i>LAST QUARTER</span>
+                  <span><i class="swc"></i>THIS QUARTER</span>
+                </div>
+              </div>
+              <div class="panelP">
+                <h3>EXECUTIVE SUMMARY</h3>
+                <div class="sumtext" id="p1Sum"></div>
+                <div class="drows" id="p1Rows"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PAGE 2 : ISSUE AT HAND ============ -->
+    <section class="page" id="pg2">
+      <div class="lift">
+        <div class="tab tab2">02</div>
+        <div class="paper">
+          <div class="binder"></div>
+          <div class="content">
+            <div class="pghead">
+              <div class="pgbadge">PAGE 2</div>
+              <div class="pgtitle">
+                <h2>ISSUE AT HAND</h2>
+                <div class="sub">Escalation paper &mdash; decision required before close of meeting.</div>
+              </div>
+              <div class="pgq">Q1 &middot; 02 / 03</div>
+            </div>
+            <div class="rule"></div><div class="rule teal"></div>
+            <div class="warn" id="p2Tag"></div>
+            <div class="issueTitle" id="p2Title"></div>
+            <div class="cols">
+              <div class="panelP">
+                <h3>SITUATION</h3>
+                <div class="sumtext" id="p2Paras"></div>
+              </div>
+              <div class="panelP">
+                <h3>NOROVIRUS CASES &mdash; ACTUAL VS PROJECTED</h3>
+                <canvas id="issueChart" width="360" height="180"></canvas>
+                <div class="caption">SOLID = CONFIRMED / WK &middot; DOTTED = DO-NOTHING PROJECTION</div>
+                <div class="risk" id="p2Risk"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ PAGE 3 : OPTIONS ============ -->
+    <section class="page" id="pg3">
+      <div class="lift">
+        <div class="tab tab3">03</div>
+        <div class="paper">
+          <div class="binder"></div>
+          <div class="content">
+            <div class="pghead">
+              <div class="pgbadge">PAGE 3</div>
+              <div class="pgtitle">
+                <h2>OPTIONS FOR DECISION</h2>
+                <div class="sub">Select ONE option to record as the board's decision.</div>
+              </div>
+              <div class="pgq">Q1 &middot; 03 / 03</div>
+            </div>
+            <div class="rule"></div><div class="rule teal"></div>
+            <div class="opts" id="p3Opts"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<div class="rep-foot">
+  <button class="btn" id="btnNextPage">NEXT PAGE &#9656;</button>
+  <button class="btn" id="btnResetReport" hidden>RESET REPORT</button>
+  <span class="pgind" id="pageInd">PAGE 1 / 3</span>
+  <span class="decision" id="decision"></span>
+  <span class="hint">SPACE / &#8594; NEXT &middot; R RESET</span>
+</div>
+
+<script src="src/report/report-data.js"></script>
 <script src="src/report/round-end-report.js"></script>
 </body>
 </html>

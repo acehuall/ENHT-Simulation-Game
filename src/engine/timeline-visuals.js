@@ -50,14 +50,21 @@ function drawPatientSurgeCue(ev, simT, clock){
   }
 }
 
-function _oneWayPath(points, speed){
-  return buildLoop(points, {}, speed || 2.4, true);
+/* one-way walk paths are static geometry — build each variant once,
+   not on every frame for every agent */
+var _visualPathCache={};
+function _cachedOneWayPath(key, points, speed){
+  if(!_visualPathCache[key]){
+    _visualPathCache[key]=buildLoop(points, {}, speed || 2.4, true);
+  }
+  return _visualPathCache[key];
 }
 
 function drawExtraStaffCue(ev, simT, clock){
   var count=ev.count || 1, role=ev.role || 'nurse', i, path, p, t;
   for(i=0;i<count;i++){
-    path=_oneWayPath([[14,15],[14,9],[16,9],[16,7],[22+i%2,7],[22+i%2,4+i%3]], 2.7);
+    path=_cachedOneWayPath('extraStaff:'+(i%6),
+      [[14,15],[14,9],[16,9],[16,7],[22+i%2,7],[22+i%2,4+i%3]], 2.7);
     t=Math.max(0, simT-(ev.t0 || 0)-i*.85);
     p=samplePath(path,t,true);
     drawAgent(role,p.x,p.y,p.dx,p.dy,p.moving,clock+i,false);
@@ -67,7 +74,8 @@ function drawExtraStaffCue(ev, simT, clock){
 function drawStaffExitCue(ev, simT, clock){
   var count=ev.count || 1, role=ev.role || 'nurse', i, path, p, t;
   for(i=0;i<count;i++){
-    path=_oneWayPath([[23,10+i%2],[18,10+i%2],[16,9],[14,9],[14,15]], 2.5);
+    path=_cachedOneWayPath('staffExit:'+(i%2),
+      [[23,10+i%2],[18,10+i%2],[16,9],[14,9],[14,15]], 2.5);
     t=Math.max(0, simT-(ev.t0 || 0)-i*.9);
     p=samplePath(path,t,true);
     drawAgent(role,p.x,p.y,p.dx,p.dy,p.moving,clock+i,false);
@@ -76,8 +84,9 @@ function drawStaffExitCue(ev, simT, clock){
 
 function drawDischargeStreamCue(ev, simT, clock){
   var count=ev.count || 3, i, path, p, t;
+  path=_cachedOneWayPath('dischargeStream',
+    [[20,12],[19,12],[19,9],[16,9],[14,9],[14,15]], 2.1);
   for(i=0;i<count;i++){
-    path=_oneWayPath([[20,12],[19,12],[19,9],[16,9],[14,9],[14,15]], 2.1);
     t=Math.max(0, simT-(ev.t0 || 0)-i*1.1);
     p=samplePath(path,t,true);
     drawAgent('patient',p.x,p.y,p.dx,p.dy,p.moving,clock+i,false,{illnessTint:0.08});

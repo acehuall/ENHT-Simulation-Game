@@ -184,7 +184,7 @@ function compileTimeline(outcome, quarterEvent){
 }
 
 function setTimelineForCurrentQuarter(outcome){
-  TIMELINE=compileTimeline(outcome || GAME.playbackOutcome || DEFAULT_OUTCOME, getCurrentQuarterEvent());
+  TIMELINE=compileTimeline(outcome || getPlaybackOutcomeForQuarter(getCurrentQuarterId()), getCurrentQuarterEvent());
   if(typeof resetMetrics==='function') resetMetrics();
   if(typeof syncQuarterControls==='function') syncQuarterControls();
   return TIMELINE;

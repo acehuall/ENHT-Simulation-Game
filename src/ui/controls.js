@@ -13,6 +13,15 @@ function seekSimulation(t){
   if(target<QLEN) reportOpenedForQuarter=false;
   resetMetrics();
   updateMetrics(target);
+  syncBoardPackButton();
+}
+
+function syncBoardPackButton(){
+  var btn=$('btnReport');
+  if(!btn) return;
+  var openable=typeof canOpenBoardPack==='function' ? canOpenBoardPack() : true;
+  btn.disabled=!openable;
+  btn.title=openable ? '' : 'Available when the quarter ends';
 }
 
 function syncPauseButton(){
@@ -76,7 +85,10 @@ $('btnFs').onclick=function(){
   else if(st.requestFullscreen){ st.requestFullscreen().catch(function(){}); }
 };
 if($('btnReport')){
-  $('btnReport').onclick=function(){ if(typeof openReport==='function') openReport(); };
+  $('btnReport').onclick=function(){
+    if(typeof canOpenBoardPack==='function' && !canOpenBoardPack()) return;
+    if(typeof openReport==='function') openReport();
+  };
 }
 $('ckLabels').onchange=function(){ labelsDiv.style.display=this.checked?'':'none'; };
 $('ckScan').onchange=function(){ $('scan').style.display=this.checked?'':'none'; };
@@ -91,11 +103,12 @@ $('btnNextScene').onclick=function(){ setScene('boardRoom'); };
 $('quarterSelect').onchange=function(){
   setCurrentQuarter(this.value);
   if(typeof setTimelineForCurrentQuarter==='function'){
-    setTimelineForCurrentQuarter(GAME.lastOutcome || DEFAULT_OUTCOME);
+    setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter(this.value));
   }
   resetCurrentQuarterSimulation();
 };
 
 populateQuarterControls();
 syncQuarterControls();
+syncBoardPackButton();
 setScene('simulation');

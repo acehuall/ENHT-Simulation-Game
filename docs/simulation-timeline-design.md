@@ -1,8 +1,25 @@
 # Design: Simulation Timelines from Resolved Outcomes
 
-Status: design only — nothing in this document is implemented yet.
+Status: **implemented** (branch `simulation-timelines-from-outcomes`). This
+document is kept as the architectural reference; §9's invariants are enforced
+at runtime by `runTimelineSelfTest()` in `src/debug/timeline-selftest.js`.
 Constraint: everything described here stays plain-JS globals loaded by ordered
 classic `<script>` tags (no modules, no build step, runs from `file://`).
+
+Implementation deltas from the original design:
+
+- The visual-cue interpreter lives in its own file,
+  `src/engine/timeline-visuals.js`, rather than inside `render()` /
+  `agent-renderer.js`.
+- The board report is split three ways: `src/ui/report-view.js` (pure
+  rendering), `src/ui/report-overlay.js` (modal state and wiring), and
+  `src/engine/decision-controller.js` (decision guards, applying decisions,
+  quarter progression).
+- Decisions are stored per quarter in `GAME.decisionByQuarterId` (not a
+  single `GAME.lastOutcome`); `getPlaybackOutcomeForQuarter()` picks the
+  most recent prior decision for whichever quarter is playing.
+- Q2–Q4 quarter data and drama profiles exist for every option; unknown
+  quarter/option ids log a console warning before falling back.
 
 ---
 

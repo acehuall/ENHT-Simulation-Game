@@ -245,10 +245,18 @@ var QUARTERS = [
 
 function getFirstQuarterId(){ return QUARTERS[0].id; }
 
+var _quarterWarned={};
+function _warnQuarterFallback(msg){
+  if(_quarterWarned[msg]) return;
+  _quarterWarned[msg]=true;
+  if(typeof console!=='undefined' && console.warn) console.warn('[quarters-data] '+msg);
+}
+
 function getQuarterIndexById(quarterId){
   for(var i=0;i<QUARTERS.length;i++){
     if(QUARTERS[i].id===quarterId) return i;
   }
+  _warnQuarterFallback('unknown quarter id "'+quarterId+'" - falling back to '+QUARTERS[0].id);
   return 0;
 }
 
@@ -268,5 +276,6 @@ function getQuarterOption(quarterOrId, optionId){
   for(i=0;i<q.options.length;i++){
     if(q.options[i].id===optionId) return q.options[i];
   }
+  _warnQuarterFallback('unknown option id "'+optionId+'" in '+q.id+' - falling back to '+fallback.id);
   return fallback;
 }

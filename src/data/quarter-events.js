@@ -81,6 +81,14 @@ var QUARTER_EVENTS = {
   }
 };
 
+var _quarterEventWarned={};
 function getQuarterEventConfig(quarterId){
-  return QUARTER_EVENTS[quarterId] || QUARTER_EVENTS.Q1;
+  if(QUARTER_EVENTS[quarterId]) return QUARTER_EVENTS[quarterId];
+  if(!_quarterEventWarned[quarterId]){
+    _quarterEventWarned[quarterId]=true;
+    if(typeof console!=='undefined' && console.warn){
+      console.warn('[quarter-events] unknown quarter id "'+quarterId+'" - falling back to Q1 visuals');
+    }
+  }
+  return QUARTER_EVENTS.Q1;
 }

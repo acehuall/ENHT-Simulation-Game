@@ -5,11 +5,29 @@ var GAME = {
   currentQuarterId:getFirstQuarterId(),
   screen:'simulation',
   selectedOptionId:null,
-  lastOutcome:null,
-  playbackOutcome:DEFAULT_OUTCOME,
+  decisionByQuarterId:{},
   decisions:[],
   stats:initialMetricStats()
 };
+
+function isQuarterDecided(quarterId){
+  return !!GAME.decisionByQuarterId[quarterId];
+}
+
+function getDecisionForQuarter(quarterId){
+  return GAME.decisionByQuarterId[quarterId] || null;
+}
+
+/* the outcome quarter `quarterId` should dramatize: the most recent board
+   decision taken before it, falling back to the scripted opening outcome */
+function getPlaybackOutcomeForQuarter(quarterId){
+  var idx=getQuarterIndexById(quarterId), i, prior;
+  for(i=idx-1;i>=0;i--){
+    prior=GAME.decisionByQuarterId[QUARTERS[i].id];
+    if(prior) return prior;
+  }
+  return DEFAULT_OUTCOME;
+}
 
 function cloneStats(stats){
   return cloneMetricStats(stats);
@@ -78,10 +96,15 @@ function resolveOutcome(quarterOrId, optionOrId, startStats){
 }
 
 function applyBoardDecision(outcome){
+  if(isQuarterDecided(outcome.quarterId)){
+    if(typeof console!=='undefined' && console.warn){
+      console.warn('[game-state] quarter '+outcome.quarterId+' already has a recorded decision; ignoring duplicate');
+    }
+    return false;
+  }
   GAME.stats=cloneStats(outcome.endStats);
   GAME.selectedOptionId=outcome.optionId;
-  GAME.lastOutcome=outcome;
-  GAME.playbackOutcome=outcome;
+  GAME.decisionByQuarterId[outcome.quarterId]=outcome;
   GAME.decisions.push({
     round:GAME.decisions.length+1,
     quarter:outcome.quarterId,
@@ -92,6 +115,7 @@ function applyBoardDecision(outcome){
     endStats:cloneStats(outcome.endStats),
     effects:mergeMetricEffects(outcome.effects, {})
   });
+  return true;
 }
 
 function resetGameState(){
@@ -99,8 +123,7 @@ function resetGameState(){
   GAME.currentQuarterId=getFirstQuarterId();
   GAME.screen='simulation';
   GAME.selectedOptionId=null;
-  GAME.lastOutcome=null;
-  GAME.playbackOutcome=DEFAULT_OUTCOME;
+  GAME.decisionByQuarterId={};
   GAME.decisions=[];
   GAME.stats=initialMetricStats();
   setSelectedOption(getCurrentQuarter().options[0].id);

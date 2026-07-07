@@ -105,6 +105,7 @@ function frame(now){
       quarterComplete=true;
       paused=true;
       if(typeof syncPauseButton==='function') syncPauseButton();
+      if(typeof syncBoardPackButton==='function') syncBoardPackButton();
       if(typeof setScene==='function') setScene('boardRoom');
       if(typeof openReport==='function' && !reportOpenedForQuarter){
         reportOpenedForQuarter=true;

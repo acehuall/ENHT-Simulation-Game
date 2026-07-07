@@ -1,14 +1,16 @@
 'use strict';
-/* ---------- timeline self-test (developer tool) ----------
-   Run from the browser console:  runTimelineSelfTest()
-   Checks the timeline-compiler invariants from
-   docs/simulation-timeline-design.md §9 against the live code.
-   Pure/read-only apart from metrics, which are restored after.
----------------------------------------------------------------- */
+/* ---------- timeline self-test + debug helpers (developer tools) ----------
+   Run from the browser console:
+     runTimelineSelfTest()  - checks the compiler invariants from
+                              docs/simulation-timeline-design.md §9 for every
+                              quarter and every option
+     debugGameState()       - snapshot of quarter, playback outcome, selected
+                              option, recorded decisions and timeline errors
+   Pure/read-only apart from metrics, which are restored afterwards.
+--------------------------------------------------------------------------- */
 function runTimelineSelfTest(){
   var EPS=0.01, failures=[], checks=0;
   var savedTimeline=TIMELINE, savedSimT=Math.min(clock,QLEN);
-  var qe=getCurrentQuarterEvent();
   var keys=METRIC_DEFS.map(function(d){ return d.key; });
 
   function check(label, ok, detail){
@@ -16,8 +18,12 @@ function runTimelineSelfTest(){
     if(!ok) failures.push(label+(detail?(' — '+detail):''));
   }
 
-  function testOutcome(label, outcome){
-    var tl=compileTimeline(outcome, qe), k, i, sum, delta, prev;
+  function testOutcome(label, outcome, quarterEvent){
+    var tl=compileTimeline(outcome, quarterEvent), k, i, sum, delta, prev;
+
+    /* 0. compiler's own validation must be clean */
+    check(label+': no validation errors', !(tl.validationErrors && tl.validationErrors.length),
+          (tl.validationErrors || []).join('; '));
 
     /* 1. sum of beat effects === endStats - startStats, per metric */
     for(k=0;k<keys.length;k++){
@@ -39,7 +45,7 @@ function runTimelineSelfTest(){
 
     /* 3. deterministic recompile */
     check(label+': deterministic',
-          JSON.stringify(compileTimeline(outcome, qe))===JSON.stringify(tl));
+          JSON.stringify(compileTimeline(outcome, quarterEvent))===JSON.stringify(tl));
 
     /* 4. metrics land exactly on endStats at QLEN */
     TIMELINE=tl;
@@ -59,10 +65,18 @@ function runTimelineSelfTest(){
           agency===(outcome.optionId==='hire_temporary_staff'));
   }
 
-  testOutcome('default', DEFAULT_OUTCOME);
-  var q=getCurrentQuarter(), o;
-  for(o=0;o<q.options.length;o++){
-    testOutcome(q.options[o].id, resolveOutcome(q, q.options[o], GAME.stats));
+  testOutcome('default', DEFAULT_OUTCOME, getQuarterEventConfig(getFirstQuarterId()));
+
+  var q, o, opt, outcome, quarterEvent, label;
+  for(q=0;q<QUARTERS.length;q++){
+    quarterEvent=getQuarterEventConfig(QUARTERS[q].id);
+    for(o=0;o<QUARTERS[q].options.length;o++){
+      opt=QUARTERS[q].options[o];
+      label=QUARTERS[q].id+'/'+opt.id;
+      check(label+': drama profile exists', !!OUTCOME_DRAMA[opt.id]);
+      outcome=resolveOutcome(QUARTERS[q], opt, initialMetricStats());
+      testOutcome(label, outcome, quarterEvent);
+    }
   }
 
   /* restore live state */
@@ -76,4 +90,26 @@ function runTimelineSelfTest(){
     console.log('TIMELINE SELF-TEST: all '+checks+' checks passed');
   }
   return {checks:checks, failures:failures};
+}
+
+function debugGameState(){
+  var tl=typeof getTimeline==='function' ? getTimeline() : null;
+  var decided={}, k;
+  for(k in GAME.decisionByQuarterId){
+    if(GAME.decisionByQuarterId.hasOwnProperty(k)) decided[k]=GAME.decisionByQuarterId[k].optionId;
+  }
+  var state={
+    quarter:GAME.currentQuarterId,
+    simT:+Math.min(clock,QLEN).toFixed(2),
+    quarterComplete:quarterComplete,
+    paused:paused,
+    scene:currentScene,
+    selectedOptionId:GAME.selectedOptionId,
+    playbackOutcome:tl && tl.outcome ? tl.outcome.quarterId+'/'+tl.outcome.optionId : null,
+    decisionByQuarterId:decided,
+    stats:cloneStats(GAME.stats),
+    timelineValidationErrors:(tl && tl.validationErrors) || []
+  };
+  console.log('GAME STATE\n'+JSON.stringify(state, null, 2));
+  return state;
 }

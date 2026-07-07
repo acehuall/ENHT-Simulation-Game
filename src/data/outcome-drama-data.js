@@ -244,6 +244,54 @@ var OUTCOME_DRAMA = {
     ]
   },
 
+  staff_wellbeing_fund: {
+    beats:[
+      {slot:'pressure', name:'Cold snap strains rotas', toast:'&#9888; Sickness absence climbs in the cold snap', weights:{morale:.25, safety:.2}, offsets:{waiting:+3, morale:-3, safety:-2}},
+      {slot:'response', name:'Wellbeing support opens', toast:'Rest hub, hot food and transport support open', weights:{budget:1, morale:.55, patsat:.6, safety:.5, rep:.6}, offsets:{waiting:-3, morale:+3, safety:+2}},
+      {slot:'consequence', name:'Teams steady through the surge', toast:'Fatigue eases as staff support beds in'}
+    ],
+    visuals:[
+      {slot:'response', type:'signage', tile:[18,8], text:'REST HUB', duration:16},
+      {slot:'response', type:'extraStaff', role:'reception', count:1, duration:10}
+    ]
+  },
+
+  expand_discharge_lounge: {
+    beats:[
+      {slot:'pressure', name:'Beds fill as the cold bites', toast:'&#9888; Winter admissions squeeze the wards', weights:{safety:.25, morale:.3}, offsets:{waiting:+4, patsat:-2}},
+      {slot:'response', name:'Discharge lounge extended', toast:'Discharge lounge hours and transport extended', weights:{budget:1, waiting:.7, patsat:.7, rep:.6}, offsets:{waiting:-4, patsat:+2}},
+      {slot:'consequence', name:'Flow steadies through winter', toast:'Bed pressure eases as discharges speed up'}
+    ],
+    visuals:[
+      {slot:'response', type:'dischargeStream', count:4, duration:16},
+      {slot:'response', type:'signage', tile:[18,8], text:'LOUNGE OPEN', duration:14}
+    ]
+  },
+
+  mutual_aid_winter: {
+    beats:[
+      {slot:'pressure', name:'Ambulance queue grows', toast:'&#9888; Ambulance arrivals climb in the cold snap', weights:{safety:.2, morale:.2}, offsets:{waiting:+3, safety:-2, rep:-1}},
+      {slot:'response', name:'Mutual aid arrives', toast:'Partner trusts send winter surge support', weights:{budget:1, waiting:1, patsat:1, morale:.6, safety:.6}, offsets:{waiting:-3, safety:+2, rep:+1}},
+      {slot:'consequence', name:'Regional reliance noted', toast:'&#9888; Commentators note reliance on neighbours'}
+    ],
+    visuals:[
+      {slot:'response', type:'extraStaff', role:'nurse', count:2, duration:14},
+      {slot:'response', type:'signage', tile:[13,15], text:'MUTUAL AID', duration:12}
+    ]
+  },
+
+  defer_capital: {
+    beats:[
+      {slot:'pressure', name:'Winter competes with works', toast:'&#9888; Winter pressure competes with capital plans', weights:{morale:.3}, offsets:{morale:-1, rep:-1}},
+      {slot:'response', name:'Capital schemes paused', toast:'Non-urgent capital work deferred for winter cover', weights:{budget:1, waiting:.6, safety:.7}, offsets:{morale:+1, rep:+1}},
+      {slot:'consequence', name:'Backlog risk logged', toast:'&#9888; Governors log the maintenance backlog risk'}
+    ],
+    visuals:[
+      {slot:'response', type:'signage', tile:[8,4], text:'WORKS PAUSED', duration:18},
+      {slot:'response', type:'staffExit', role:'porter', count:1, duration:10}
+    ]
+  },
+
   _default: {
     beats:[
       {slot:'pressure', name:'Quarter pressure rises', toast:'&#9888; Quarter pressure rises', weights:{waiting:.35, patsat:.35, morale:.35, safety:.35, rep:.35}, offsets:{waiting:+2, safety:-1}},
@@ -256,6 +304,14 @@ var OUTCOME_DRAMA = {
   }
 };
 
+var _dramaWarned={};
 function getOutcomeDramaProfile(optionId){
-  return OUTCOME_DRAMA[optionId] || OUTCOME_DRAMA._default;
+  if(OUTCOME_DRAMA[optionId]) return OUTCOME_DRAMA[optionId];
+  if(!_dramaWarned[optionId]){
+    _dramaWarned[optionId]=true;
+    if(typeof console!=='undefined' && console.warn){
+      console.warn('[outcome-drama] no drama profile for option "'+optionId+'" - using _default beats');
+    }
+  }
+  return OUTCOME_DRAMA._default;
 }

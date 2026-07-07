@@ -133,7 +133,7 @@ function repShellHTML(d){
     '<div><h1>NORTHBROOK GENERAL HOSPITAL</h1>',
     '<div class="sub">QUARTERLY BOARD PACK &middot; CONFIDENTIAL &middot; DRAFT FOR MINUTES</div></div>',
     '<div class="chip">'+d.quarter.displayName+'</div>',
-    '<label class="rep-qctl">Quarter <select id="reportQuarterSelect" aria-label="Report quarter selector"></select></label>',
+    '<label class="rep-qctl" id="reportQuarterControl">Quarter <select id="reportQuarterSelect" aria-label="Report quarter selector"></select></label>',
   '</div>');
 
   h.push('<div class="rep-stage"><div id="stack">');
@@ -206,7 +206,10 @@ function populateReportQuarterSelect(){
   }
   sel.innerHTML=html.join('');
   sel.value=getCurrentQuarterId();
+  if($r('reportQuarterControl')) $r('reportQuarterControl').hidden=(typeof isDebugMode==='function' && !isDebugMode());
+  sel.disabled=(typeof isDebugMode==='function' && !isDebugMode());
   sel.onchange=function(){
+    if(typeof isDebugMode==='function' && !isDebugMode()) return;
     setCurrentQuarter(this.value);
     if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
     if(typeof resetMetrics==='function') resetMetrics();
@@ -519,18 +522,51 @@ function showOutcome(outcome){
     riskText;
 }
 
+
+function restoreReportPhaseState(){
+  var phase=typeof getQuarterPhase==='function' ? getQuarterPhase() : null;
+  var option, cards, i;
+  if(!phase || phase===QUARTER_PHASES.REPORT_OPEN || phase===QUARTER_PHASES.REPORT_PENDING) return;
+  option=getCurrentOption();
+  if(!option){
+    $r('decision').textContent='NO BOARD DECISION SELECTED';
+    return;
+  }
+  REP.choice=REP.data.options.findIndex ? REP.data.options.findIndex(function(o){ return o.id===option.id; }) : -1;
+  cards=$r('p3Opts').querySelectorAll('.opt');
+  for(i=0;i<cards.length;i++) cards[i].classList.toggle('sel', REP.data.options[i].id===option.id);
+  $r('decision').textContent='BOARD DECISION: '+option.title.toUpperCase();
+  if(GAME.currentOutcome) showOutcome(GAME.currentOutcome);
+  if(phase===QUARTER_PHASES.QUARTER_LOCKED){
+    REP.locked=true;
+    var nextBtn=$r('btnNextQuarterReport');
+    nextBtn.textContent=getNextQuarterId(REP.data.quarter.id)?'NEXT QUARTER':'YEAR COMPLETE';
+    nextBtn.hidden=false;
+  }
+}
+
+function syncReportPhaseUI(){
+  var phase=typeof getQuarterPhase==='function' ? getQuarterPhase() : QUARTER_PHASES.REPORT_OPEN;
+  var cards=$r('p3Opts') ? $r('p3Opts').querySelectorAll('.opt') : [], i;
+  for(i=0;i<cards.length;i++){
+    cards[i].disabled=phase!==QUARTER_PHASES.REPORT_OPEN;
+    cards[i].classList.toggle('is-disabled', phase!==QUARTER_PHASES.REPORT_OPEN);
+    cards[i].setAttribute('aria-disabled', phase!==QUARTER_PHASES.REPORT_OPEN ? 'true' : 'false');
+  }
+  if($r('btnNextQuarterReport')) $r('btnNextQuarterReport').disabled=phase!==QUARTER_PHASES.QUARTER_LOCKED;
+}
+
 function chooseOption(i){
-  if(REP.locked) return;
-  REP.choice=i;
+  if(REP.locked || (typeof canSelectQuarterOption==='function' && !canSelectQuarterOption())) return;
   var option=REP.data.options[i];
+  REP.outcome=applyBoardDecision(REP.data.quarter, option.id);
+  if(!REP.outcome) return;
+  REP.choice=i;
   var cards=$r('p3Opts').querySelectorAll('.opt'), j;
   for(j=0;j<cards.length;j++) cards[j].classList.toggle('sel', j===i);
   $r('decision').textContent='BOARD DECISION: '+option.title.toUpperCase();
-
-  REP.outcome=resolveQuarterOutcome(REP.data.quarter, option.id, getDecisionBaseStats());
-  REP.locked=true;
-  applyBoardDecision(REP.outcome);
   showOutcome(REP.outcome);
+  REP.locked=true;
 
   var nextBtn=$r('btnNextQuarterReport');
   if(getNextQuarterId(REP.data.quarter.id)){
@@ -540,27 +576,16 @@ function chooseOption(i){
     nextBtn.textContent='YEAR COMPLETE';
     nextBtn.hidden=false;
   }
+  syncReportPhaseUI();
 }
 
-function applyBoardDecision(outcome){
-  GAME.stats=cloneStats(outcome.after);
-  GAME.selectedOptionId=outcome.option.id;
-  GAME.lastOutcome=outcome.option.outcomeText;
-  GAME.decisions.push({
-    round:GAME.decisions.length+1,
-    quarterIndex:GAME.currentQuarterIndex,
-    quarter:outcome.quarter.id,
-    optionId:outcome.option.id,
-    title:outcome.option.title,
-    summary:outcome.option.outcomeText,
-    impacts:mergeQuarterImpacts(outcome.impacts, {}),
-    triggeredRisks:outcome.triggeredRisks.map(function(r){ return r.name; }),
-    statsAfter:cloneStats(outcome.after)
-  });
-  if(typeof setMetricStarts==='function') setMetricStarts(outcome.after);
+function applyBoardDecision(quarter, optionId){
+  if(typeof submitQuarterDecision==='function') return submitQuarterDecision(optionId);
+  return null;
 }
 
 function goToNextQuarter(){
+  if(typeof canBeginNextQuarter==='function' && !canBeginNextQuarter()) return;
   if(!REP.outcome) return;
   var nextId=getNextQuarterId(REP.data.quarter.id);
   if(!nextId){
@@ -568,7 +593,9 @@ function goToNextQuarter(){
     $r('btnNextQuarterReport').hidden=true;
     return;
   }
-  setCurrentQuarter(nextId);
+  if(typeof advancePhase==='function'){
+    if(!advancePhase(QUARTER_ACTIONS.BEGIN_NEXT_QUARTER)) return;
+  }else return;
   if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
   if(typeof resetMetrics==='function') resetMetrics();
   if(typeof syncQuarterControls==='function') syncQuarterControls();
@@ -626,18 +653,20 @@ function nextReportPage(){
 
 /* ---------- open / close ---------- */
 function openReport(){
+  if(typeof advancePhase==='function' && !advancePhase(QUARTER_ACTIONS.OPEN_REPORT)) return;
   REP.data=buildReportData();
   REP.root.innerHTML=repShellHTML(REP.data);
   REP.pages=[$r('pg1'),$r('pg2'),$r('pg3')];
   REP.page=0;
   REP.choice=-1;
   REP.busy=false;
-  REP.locked=false;
-  REP.outcome=null;
+  REP.locked=(typeof getQuarterPhase==='function' && getQuarterPhase()===QUARTER_PHASES.QUARTER_LOCKED);
+  REP.outcome=(typeof GAME!=='undefined' ? GAME.currentOutcome : null);
   fillPage1();
   fillPage2();
   fillPage3();
   populateReportQuarterSelect();
+  restoreReportPhaseState();
   $r('btnNextPage').addEventListener('click', nextReportPage);
   $r('btnNextQuarterReport').addEventListener('click', goToNextQuarter);
   if(REP.inGame){
@@ -647,6 +676,7 @@ function openReport(){
   }
   layoutStack(true);
   updateFoot();
+  syncReportPhaseUI();
   REP.root.hidden=false;
   REP.open=true;
 }
@@ -666,7 +696,7 @@ function closeReport(){
   try{
     var params=new URLSearchParams(window.location.search);
     var q=params.get('quarter');
-    if(q) setCurrentQuarter(q);
+    if(q && typeof isDebugMode==='function' && isDebugMode()) setCurrentQuarter(q);
   }catch(e){}
 
   var btn=document.getElementById('btnReadReport');

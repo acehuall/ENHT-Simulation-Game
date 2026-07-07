@@ -58,7 +58,15 @@ function populateOptionControls(){
   sel.innerHTML=html.join('');
 }
 
+function syncDebugControls(){
+  var debug=typeof isDebugMode==='function' && isDebugMode();
+  var controls=document.querySelectorAll('.quarterControl');
+  for(var i=0;i<controls.length;i++) controls[i].hidden=!debug;
+  if($('btnNextQuarter')) $('btnNextQuarter').hidden=!debug;
+}
+
 function syncQuarterControls(){
+  syncDebugControls();
   var quarter=getCurrentQuarter();
   var option=getCurrentOption();
   var qSel=$('quarterSelect');
@@ -66,17 +74,17 @@ function syncQuarterControls(){
   if(qSel) qSel.value=quarter.id;
   if(oSel){
     populateOptionControls();
-    oSel.value=option.id;
+    oSel.value=option ? option.id : '';
   }
   if($('quarterChip')) $('quarterChip').textContent=quarter.displayName;
   if($('quarterTrackLabel')) $('quarterTrackLabel').textContent=quarter.label;
   if($('bannerMsg')){
     $('bannerMsg').innerHTML=quarter.label+' &middot; '+quarter.title.toUpperCase()+
-      '<br><b>BOARD OPTION: '+option.title.toUpperCase()+'</b>';
+      '<br><b>BOARD OPTION: '+(option ? option.title.toUpperCase() : 'NO DECISION SELECTED')+'</b>';
   }
   if($('metricTrendCaption')) $('metricTrendCaption').textContent='BOARD METRIC TREND - '+quarter.label;
-  if($('btnNextQuarter')) $('btnNextQuarter').disabled=!getNextQuarterId(quarter.id);
-  if(typeof setScenarioSelection==='function') setScenarioSelection(quarter.id, option.id);
+  if($('btnNextQuarter')) $('btnNextQuarter').disabled=!getNextQuarterId(quarter.id) || !(typeof isDebugMode==='function' && isDebugMode());
+  if(typeof setScenarioSelection==='function') setScenarioSelection(quarter.id, option ? option.id : quarter.options[0].id);
 }
 
 function resetCurrentQuarterSimulation(){
@@ -90,6 +98,7 @@ function resetCurrentQuarterSimulation(){
 $('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
 $('btnRestart').onclick=function(){ resetCurrentQuarterSimulation(); };
 $('btnNextQuarter').onclick=function(){
+  if(typeof isDebugMode==='function' && !isDebugMode()) return;
   if(!advanceToNextQuarter()) return;
   if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
   populateOptionControls();
@@ -112,6 +121,7 @@ $('btnPrevScene').onclick=function(){ setScene('simulation'); };
 $('btnNextScene').onclick=function(){ setScene('boardRoom'); };
 
 $('quarterSelect').onchange=function(){
+  if(typeof isDebugMode==='function' && !isDebugMode()) return;
   setCurrentQuarter(this.value);
   if(typeof setMetricStarts==='function') setMetricStarts(GAME.stats);
   populateOptionControls();
@@ -120,6 +130,7 @@ $('quarterSelect').onchange=function(){
 };
 
 $('optionSelect').onchange=function(){
+  if(typeof isDebugMode==='function' && !isDebugMode()) return;
   setSelectedOption(this.value);
   syncQuarterControls();
   resetCurrentQuarterSimulation();

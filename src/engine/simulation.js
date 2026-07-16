@@ -22,6 +22,8 @@ function render(){
     ctx.fillRect(406,516,26,22);
   }
 
+  var patient=AGENTS.find(function(agent){ return agent.role==='patient'; });
+  var patientPath=patient && patient.L ? samplePath(patient.L,clock,patient.oneWay) : null;
   for(var n=0;n<AGENTS.length;n++){
     var a=AGENTS[n];
     if(a.fixed){
@@ -33,7 +35,9 @@ function render(){
     var p=samplePath(a.L,time,a.oneWay);
     var visualState=a.role==='patient' ? getPatientVisualState(a,p,simT,time) : null;
     drawAgent(a.role,p.x,p.y,p.dx,p.dy,p.moving,clock,false,visualState);
-    if(a.heartIdx!=null && p.idx===a.heartIdx){
+    /* A heart appears only while the nurse and ill patient share the treatment bay. */
+    if(a.heartIdx!=null && p.idx===a.heartIdx && patientPath &&
+       patientPath.idx===patient.treatmentIdx){
       var ph=(clock*1.1)%1;
       ctx.globalAlpha=1-ph;
       var hx=a.heartAt[0]*32+16, hy=a.heartAt[1]*32-2-ph*14;

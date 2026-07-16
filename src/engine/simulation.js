@@ -78,7 +78,6 @@ function render(){
 
   var progress=(simT/QLEN*100);
   $('pfill').style.width=progress+'%';
-  $('pbar').style.setProperty('--scrub-x',progress+'%');
   $('pscrub').value=simT;
   $('ptime').textContent=simMonthLabel(simT);
   var defs=getMetricDefs();

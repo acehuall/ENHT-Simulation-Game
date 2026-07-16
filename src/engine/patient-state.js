@@ -58,17 +58,9 @@ function getPatientVisualState(agent, pathSample, simT, agentTime){
   if(inTreatmentArea && treatmentAvailable) movementState=PATIENT_STATES.inWard;
   if(reachedTreatment && !inTreatmentArea) movementState=PATIENT_STATES.treated;
 
-  if(quarterEvent.patientIllnessTint){
+  if(quarterEvent.patientIllnessTint && !reachedTreatment){
     conditionStates.push(PATIENT_STATES.ill);
-    if(!treatmentAvailable){
-      illnessTint=illness.untreatedTint;
-    }else if(inTreatmentArea){
-      illnessTint=illness.inTreatmentTint;
-    }else if(reachedTreatment){
-      illnessTint=illness.treatedTint;
-    }else{
-      illnessTint=illness.untreatedTint;
-    }
+    illnessTint=illness.untreatedTint;
   }
 
   return {

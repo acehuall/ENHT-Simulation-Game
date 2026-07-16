@@ -11,21 +11,22 @@ function getRolePalette(role,visualState){
   var skin='#e8b48c';
   if(role==='patient' && tint>0){
     return {
-      top: mixHexColor(base.top,'#6fcc70',0.45*tint),
-      leg: mixHexColor(base.leg,'#5fbf72',0.38*tint),
+      /* Illness is shown in the patient's face, not their uniform. */
+      top: base.top,
+      leg: base.leg,
       hair: base.hair,
-      skin: mixHexColor(skin,'#8fd477',0.34*tint)
+      skin: mixHexColor(skin,'#6fbd62',tint)
     };
   }
   return {top:base.top, leg:base.leg, hair:base.hair, skin:skin};
 }
 
-function drawIllnessPixels(fx,fy,bob,intensity){
+function drawIllnessFaceMarks(fx,fy,bob,intensity){
   if(!intensity) return;
-  ctx.globalAlpha=0.22+0.18*intensity;
-  R('#66d56e',fx-10,fy-31-bob,3,3);
-  R('#9ee985',fx+8,fy-23-bob,2,2);
-  R('#58bd5e',fx-9,fy-15-bob,2,2);
+  ctx.globalAlpha=0.24+0.22*intensity;
+  R('#4d994c',fx-5,fy-23-bob,2,2);
+  R('#4d994c',fx+4,fy-21-bob,2,2);
+  R('#9bdc7d',fx,fy-18-bob,2,2);
   ctx.globalAlpha=1;
 }
 
@@ -56,7 +57,7 @@ function drawAgent(role,tx,ty,dx,dy,moving,clock,seated,visualState){
     var s=dx<0?-3:(dx>0?3:0);
     R('#20242f',fx-4+s,fy-25-bob,2,3); R('#20242f',fx+2+s,fy-25-bob,2,3);
   }
-  if(role==='patient') drawIllnessPixels(fx,fy,bob,visualState && visualState.illnessTint);
+  if(role==='patient') drawIllnessFaceMarks(fx,fy,bob,visualState && visualState.illnessTint);
 }
 
 function drawReporterNpc(npc,clock){

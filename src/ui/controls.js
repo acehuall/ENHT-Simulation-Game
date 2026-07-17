@@ -77,8 +77,21 @@ function resetCurrentQuarterSimulation(){
   render();
 }
 
+function confirmCurrentQuarterRestart(){
+  if(window.confirm('Restart the current quarter? Any progress in this quarter will be lost.')){
+    resetCurrentQuarterSimulation();
+  }
+}
+
 $('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
-$('btnRestart').onclick=function(){ resetCurrentQuarterSimulation(); };
+$('btnRestart').onclick=function(){ confirmCurrentQuarterRestart(); };
+document.addEventListener('keydown',function(event){
+  if(!simulationStarted || event.altKey || event.ctrlKey || event.metaKey) return;
+  if((event.key==='r' || event.key==='R') && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)){
+    event.preventDefault();
+    confirmCurrentQuarterRestart();
+  }
+});
 $('btnFs').onclick=function(){
   var st=document.querySelector('.stage');
   if(document.fullscreenElement){ document.exitFullscreen(); }

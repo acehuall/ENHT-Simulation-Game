@@ -7,9 +7,10 @@
 <link rel="stylesheet" href="src/css/base.css">
 <link rel="stylesheet" href="src/css/layout.css">
 <link rel="stylesheet" href="src/css/ui.css">
+<link rel="stylesheet" href="src/css/pregame.css">
 </head>
 <body>
-<div class="wrap">
+<div class="wrap game-shell" id="gameShell" aria-hidden="true">
 
   <div class="hdr">
     <div class="nsq">N</div>
@@ -109,6 +110,7 @@
 
 </div>
 <div id="repRoot" class="rep-root" hidden></div>
+<div id="pregameRoot" class="pregame-root" aria-live="polite"></div>
 <script src="src/data/map-data.js"></script>
 <script src="src/engine/canvas.js"></script>
 <script src="src/engine/map-renderer.js"></script>
@@ -120,6 +122,7 @@
 <script src="src/data/quarters-data.js"></script>
 <script src="src/data/quarter-events.js"></script>
 <script src="src/data/outcome-drama-data.js"></script>
+<script src="src/data/pregame-data.js"></script>
 <script src="src/engine/game-state.js"></script>
 <script src="src/ui/dom.js"></script>
 <script src="src/ui/labels.js"></script>
@@ -137,6 +140,7 @@
 <script src="src/ui/report-overlay.js"></script>
 <script src="src/engine/simulation.js"></script>
 <script src="src/debug/timeline-selftest.js"></script>
+<script src="src/ui/pregame.js"></script>
 <script src="src/main.js"></script>
 </body>
 </html>

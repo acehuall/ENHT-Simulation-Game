@@ -42,6 +42,13 @@ No installation is required.
    - Press `F11` on Windows.
 4. The facilitator controls progression through the game.
 
+The pre-game flow introduces the Trust, lets the group assemble its board, then
+presents a short, facilitator-paced board briefing. Add `?skipintro` to the
+`index.html` URL to bypass this flow while testing or restarting a session. The
+in-game **Restart Q** button and `R` confirm before restarting the current
+quarter directly; they deliberately do not return to the briefing, so a
+facilitator can recover quickly mid-session.
+
 The game is intended to run locally and offline.
 
 ## Future Development

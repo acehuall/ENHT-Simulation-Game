@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Northbrook General - Tilemap Demo</title>
+<!-- Retro faces for the pregame (Press Start 2P display, VT323 body).
+     Both are bundled locally as .ttf under src/Assets/fonts and loaded via
+     @font-face in src/css/pregame.css, so the sequence works fully offline.
+     Courier New is the fallback if the files are ever missing. -->
 <link rel="stylesheet" href="src/css/base.css">
 <link rel="stylesheet" href="src/css/layout.css">
 <link rel="stylesheet" href="src/css/ui.css">
@@ -140,6 +144,7 @@
 <script src="src/ui/report-overlay.js"></script>
 <script src="src/engine/simulation.js"></script>
 <script src="src/debug/timeline-selftest.js"></script>
+<script src="src/ui/pregame-scene.js"></script>
 <script src="src/ui/pregame.js"></script>
 <script src="src/main.js"></script>
 </body>

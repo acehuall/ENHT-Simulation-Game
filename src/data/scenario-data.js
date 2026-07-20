@@ -3,13 +3,15 @@
    `start` is the new-game baseline. Per-quarter playback starts come from
    the resolved outcome on TIMELINE, not from fixed scenario events.
 ------------------------------------------------------------------------ */
+/* `label` is the short tag used on tight UI (impact chips, live sim chart).
+   `full` is the readable name shown on the board report where there is room. */
 var METRIC_DEFS = [
-  {key:'budget',  label:'BUDGET',  money:true,  goodUp:true,  start:0,  min:-5, max:2},
-  {key:'waiting', label:'WAITING', money:false, goodUp:false, start:68, min:0,  max:100},
-  {key:'patsat',  label:'PAT SAT', money:false, goodUp:true,  start:63, min:0,  max:100},
-  {key:'morale',  label:'MORALE',  money:false, goodUp:true,  start:58, min:0,  max:100},
-  {key:'safety',  label:'SAFETY',  money:false, goodUp:true,  start:66, min:0,  max:100},
-  {key:'rep',     label:'REP',     money:false, goodUp:true,  start:60, min:0,  max:100}
+  {key:'budget',  label:'BUDGET',  full:'Budget',               money:true,  goodUp:true,  start:0,  min:-5, max:2},
+  {key:'waiting', label:'WAITING', full:'Waiting Times',        money:false, goodUp:false, start:68, min:0,  max:100},
+  {key:'patsat',  label:'PAT SAT', full:'Patient Satisfaction', money:false, goodUp:true,  start:63, min:0,  max:100},
+  {key:'morale',  label:'MORALE',  full:'Staff Morale',         money:false, goodUp:true,  start:58, min:0,  max:100},
+  {key:'safety',  label:'SAFETY',  full:'Safety',               money:false, goodUp:true,  start:66, min:0,  max:100},
+  {key:'rep',     label:'REP',     full:'Reputation',           money:false, goodUp:true,  start:60, min:0,  max:100}
 ];
 
 function getMetricDef(key){

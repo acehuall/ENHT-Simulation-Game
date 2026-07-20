@@ -29,9 +29,9 @@ function fillPage1(){
     bars.push('<div class="grp">'+
       '<i class="bar last" style="height:'+metricBarPct(m,m.last)+'%"></i>'+
       '<i class="bar cur" style="height:'+metricBarPct(m,m.cur)+'%"></i></div>');
-    xl.push('<span>'+m.label+'</span>');
+    xl.push('<span>'+(m.full||m.label)+'</span>');
     dl=metricDelta(m);
-    rows.push('<div class="drow"><b>'+m.label+'</b>'+
+    rows.push('<div class="drow"><b>'+(m.full||m.label)+'</b>'+
       '<span class="val">'+metricDisp(m,m.cur)+'</span>'+
       '<span class="dlt '+dl.tone+'">'+dl.disp+'</span></div>');
   }
@@ -53,21 +53,27 @@ function fillPage2(){
 
 function drawIssueChart(c){
   var cv=$r('issueChart'), ctx=cv.getContext('2d');
-  var W=cv.width, H=cv.height, L=32, R=8, T=10, B=22;
+  /* Draw in a fixed 360x180 logical space but back it with a super-sampled
+     bitmap so the axis labels stay sharp when the canvas is scaled to fit. */
+  var W=360, H=180, L=32, R=8, T=10, B=22;
+  var ss=Math.max(2, Math.ceil((window.devicePixelRatio||1)*2));
+  if(cv.width!==W*ss){ cv.width=W*ss; cv.height=H*ss; }
+  ctx.setTransform(ss,0,0,ss,0,0);
   var n=c.actual.length+c.projected.length;
   var step=(W-L-R)/n;
-  var ink='#141b30', mid='#8b94ab';
+  var ink='#141b30', mid='#8b94ab', axisText='#42557a';
   var yOf=function(v){ return T+(H-T-B)*(1-v/c.maxV); };
   var i,x,y,px,py,d,dx,dy,len;
 
   ctx.clearRect(0,0,W,H);
 
   /* gridlines + y labels */
-  ctx.font='bold 8px "Courier New", monospace';
+  ctx.font='bold 9px "Courier New", monospace';
+  ctx.textBaseline='alphabetic';
   for(i=0;i<=c.maxV;i+=40){
     y=Math.round(yOf(i));
     ctx.fillStyle='#d4dae7'; ctx.fillRect(L,y,W-L-R,1);
-    ctx.fillStyle=mid; ctx.textAlign='right'; ctx.fillText(String(i),L-4,y+3);
+    ctx.fillStyle=axisText; ctx.textAlign='right'; ctx.fillText(String(i),L-5,y+3);
   }
 
   /* axes */
@@ -79,7 +85,7 @@ function drawIssueChart(c){
   x=Math.round(L+c.actual.length*step);
   ctx.fillStyle=mid;
   for(y=T;y<H-B;y+=6) ctx.fillRect(x,y,1,3);
-  ctx.textAlign='center'; ctx.fillText('NOW',x,T-2);
+  ctx.fillStyle=axisText; ctx.textAlign='center'; ctx.fillText('NOW',x,T-2);
 
   /* actual bars (teal) */
   for(i=0;i<c.actual.length;i++){
@@ -107,7 +113,7 @@ function drawIssueChart(c){
   ctx.textAlign='left'; ctx.fillText('CAPACITY',L+4,y-4);
 
   /* x labels */
-  ctx.fillStyle=mid; ctx.textAlign='center';
+  ctx.fillStyle=axisText; ctx.textAlign='center';
   ctx.fillText('W1',L+step*0.5,H-B+12);
   ctx.fillText('W'+n,W-R-step*0.5,H-B+12);
 }

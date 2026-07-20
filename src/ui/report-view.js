@@ -16,6 +16,7 @@ function _reportMetricValues(){
     metrics.push({
       key:def.key,
       label:def.label,
+      full:def.full || def.label,
       money:!!def.money,
       goodUp:!!def.goodUp,
       last:start,
@@ -94,8 +95,8 @@ function _fillReportPage1(data){
     bars.push('<div class="rep-bar-group">'+
       '<i class="rep-bar last" style="height:'+_metricBarPct(m,m.last)+'%"></i>'+
       '<i class="rep-bar cur" style="height:'+_metricBarPct(m,m.cur)+'%"></i></div>');
-    labels.push('<span>'+escapeHTML(m.label)+'</span>');
-    rows.push('<div class="rep-metric-row"><b>'+escapeHTML(m.label)+'</b>'+
+    labels.push('<span>'+escapeHTML(m.full)+'</span>');
+    rows.push('<div class="rep-metric-row"><b>'+escapeHTML(m.full)+'</b>'+
       '<span>'+_metricDisplay(m,m.cur)+'</span>'+
       '<i class="'+dl.tone+'">'+escapeHTML(dl.disp)+'</i></div>');
   }
@@ -159,18 +160,23 @@ function _drawReportIssueChart(issue){
   var cv=$('repIssueChart');
   if(!cv) return;
   var c=issue.chart, g=cv.getContext('2d');
-  var W=cv.width, H=cv.height, L=34, R=10, T=12, B=24;
+  /* Draw in a fixed 360x180 logical space but back it with a super-sampled
+     bitmap so the axis labels stay sharp when the canvas is scaled to fit. */
+  var W=360, H=180, L=34, R=10, T=12, B=24;
+  var ss=Math.max(2, Math.ceil((window.devicePixelRatio||1)*2));
+  if(cv.width!==W*ss){ cv.width=W*ss; cv.height=H*ss; }
+  g.setTransform(ss,0,0,ss,0,0);
   var n=c.actual.length+c.projected.length, step=(W-L-R)/n;
   var yOf=function(v){ return T+(H-T-B)*(1-v/c.maxV); };
   var i, x, y, px, py, dx, dy, len, d;
   g.clearRect(0,0,W,H);
   g.fillStyle='#fbfcfe'; g.fillRect(0,0,W,H);
-  g.font='bold 8px monospace';
-  g.textAlign='right';
+  g.font='bold 9px "Courier New", monospace';
+  g.textAlign='right'; g.textBaseline='alphabetic';
   for(i=0;i<=c.maxV;i+=40){
     y=Math.round(yOf(i));
     g.fillStyle='#d4dae7'; g.fillRect(L,y,W-L-R,1);
-    g.fillStyle='#4a5470'; g.fillText(String(i),L-4,y+3);
+    g.fillStyle='#42557a'; g.fillText(String(i),L-5,y+3);
   }
   g.fillStyle='#141b30';
   g.fillRect(L,T-4,2,H-T-B+4);

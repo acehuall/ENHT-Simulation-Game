@@ -6,12 +6,12 @@ var REPORT_DATA = {
 
   /* last = start of quarter, cur = end of quarter */
   metrics:[
-    {key:'budget', label:'BUDGET',  money:true, goodUp:true,  last:0,  cur:-1.8, min:-5, max:2},
-    {key:'waiting',label:'WAITING',             goodUp:false, last:68, cur:71,   min:0,  max:100},
-    {key:'patsat', label:'PAT SAT',             goodUp:true,  last:63, cur:58,   min:0,  max:100},
-    {key:'morale', label:'MORALE',              goodUp:true,  last:58, cur:53,   min:0,  max:100},
-    {key:'safety', label:'SAFETY',              goodUp:true,  last:66, cur:56,   min:0,  max:100},
-    {key:'rep',    label:'REP',                 goodUp:true,  last:60, cur:55,   min:0,  max:100}
+    {key:'budget', label:'BUDGET',  full:'Budget',               money:true, goodUp:true,  last:0,  cur:-1.8, min:-5, max:2},
+    {key:'waiting',label:'WAITING', full:'Waiting Times',        goodUp:false, last:68, cur:71,   min:0,  max:100},
+    {key:'patsat', label:'PAT SAT', full:'Patient Satisfaction', goodUp:true,  last:63, cur:58,   min:0,  max:100},
+    {key:'morale', label:'MORALE',  full:'Staff Morale',         goodUp:true,  last:58, cur:53,   min:0,  max:100},
+    {key:'safety', label:'SAFETY',  full:'Safety',               goodUp:true,  last:66, cur:56,   min:0,  max:100},
+    {key:'rep',    label:'REP',     full:'Reputation',           goodUp:true,  last:60, cur:55,   min:0,  max:100}
   ],
 
   summary:[

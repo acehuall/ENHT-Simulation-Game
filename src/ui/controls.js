@@ -83,13 +83,58 @@ function confirmCurrentQuarterRestart(){
   }
 }
 
-$('btnPause').onclick=function(){ paused=!paused; this.textContent=paused?'Resume':'Pause'; };
+/* Skip the animated simulation and jump straight to the quarter close - mirrors
+   the natural end-of-quarter flow (board room + board pack). */
+function skipSimulation(){
+  seekSimulation(QLEN);
+  quarterComplete=true;
+  setScene('boardRoom');
+  paused=true;
+  syncPauseButton();
+  syncBoardPackButton();
+  if(typeof openReport==='function' && !reportOpenedForQuarter){
+    reportOpenedForQuarter=true;
+    openReport();
+  }
+  render();
+}
+
+function togglePause(){
+  paused=!paused;
+  syncPauseButton();
+}
+
+$('btnPause').onclick=function(){ togglePause(); };
 $('btnRestart').onclick=function(){ confirmCurrentQuarterRestart(); };
+
+/* Facilitator hotkeys: S skip · P pause · F facilitator notes · R restart. */
 document.addEventListener('keydown',function(event){
   if(!simulationStarted || event.altKey || event.ctrlKey || event.metaKey) return;
-  if((event.key==='r' || event.key==='R') && !/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)){
-    event.preventDefault();
-    confirmCurrentQuarterRestart();
+  if(event.key==='Escape'){
+    if(typeof isFacilitatorNotesOpen==='function' && isFacilitatorNotesOpen()){
+      event.preventDefault();
+      closeFacilitatorNotes();
+    }
+    return;
+  }
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return;
+  switch(event.key.toLowerCase()){
+    case 's':
+      event.preventDefault();
+      skipSimulation();
+      break;
+    case 'p':
+      event.preventDefault();
+      togglePause();
+      break;
+    case 'f':
+      event.preventDefault();
+      if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
+      break;
+    case 'r':
+      event.preventDefault();
+      confirmCurrentQuarterRestart();
+      break;
   }
 });
 $('btnFs').onclick=function(){

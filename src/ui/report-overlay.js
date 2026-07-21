@@ -15,6 +15,11 @@ function _reportRoot(){
   return $('repRoot');
 }
 
+function isReportOpen(){
+  var root=_reportRoot();
+  return !!(root && !root.hidden);
+}
+
 function _reportData(){
   var q=getCurrentQuarter();
   return {

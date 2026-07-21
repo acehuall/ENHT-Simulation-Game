@@ -107,18 +107,38 @@ function togglePause(){
 $('btnPause').onclick=function(){ togglePause(); };
 $('btnRestart').onclick=function(){ confirmCurrentQuarterRestart(); };
 
+function _facilitatorNotesOpen(){
+  return typeof isFacilitatorNotesOpen==='function' && isFacilitatorNotesOpen();
+}
+function _boardPackOpen(){
+  return typeof isReportOpen==='function' && isReportOpen();
+}
+
 /* Facilitator hotkeys: S skip · P pause · F facilitator notes · R restart. */
 document.addEventListener('keydown',function(event){
   if(!simulationStarted || event.altKey || event.ctrlKey || event.metaKey) return;
+  /* Held keys must not re-fire actions (e.g. repeatedly re-opening a modal). */
+  if(event.repeat) return;
   if(event.key==='Escape'){
-    if(typeof isFacilitatorNotesOpen==='function' && isFacilitatorNotesOpen()){
+    if(_facilitatorNotesOpen()){
       event.preventDefault();
       closeFacilitatorNotes();
     }
     return;
   }
   if(/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return;
-  switch(event.key.toLowerCase()){
+  var key=event.key.toLowerCase();
+  /* While an overlay owns the screen, only F is honoured - to toggle the
+     facilitator notes. Skip/pause/restart are suppressed so a stray keypress
+     cannot mutate simulation state behind a modal. */
+  if(_facilitatorNotesOpen() || _boardPackOpen()){
+    if(key==='f' && !_boardPackOpen()){
+      event.preventDefault();
+      if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
+    }
+    return;
+  }
+  switch(key){
     case 's':
       event.preventDefault();
       skipSimulation();
@@ -137,6 +157,11 @@ document.addEventListener('keydown',function(event){
       break;
   }
 });
+if($('btnNotes')){
+  $('btnNotes').onclick=function(){
+    if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
+  };
+}
 $('btnFs').onclick=function(){
   var st=document.querySelector('.stage');
   if(document.fullscreenElement){ document.exitFullscreen(); }

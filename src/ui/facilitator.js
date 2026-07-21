@@ -6,6 +6,9 @@
    leaving the simulation view.
 ------------------------------------------------------------------------ */
 
+var _facilPrevPaused=false;
+var _facilPrevFocus=null;
+
 function _facilRoot(){ return $('facilRoot'); }
 
 function isFacilitatorNotesOpen(){
@@ -21,15 +24,24 @@ function _facilLine(parent, cls, text){
   return el;
 }
 
+/* Plain-text effect: money keeps the sign outside the £ and one decimal
+   (e.g. -£1.8m, +£0.3m); everything else is a signed integer. */
+function _facilFormatEffect(def, v){
+  if(def.money){
+    var s=v>0 ? '+' : (v<0 ? '-' : '');
+    return s+'£'+Math.abs(v).toFixed(1)+'m';
+  }
+  return (v>0 ? '+' : '')+String(v);
+}
+
 function _facilEffectsSummary(effects){
   var defs=(typeof getMetricDefs==='function') ? getMetricDefs() : METRIC_DEFS;
-  var parts=[], i, def, v, sign;
+  var parts=[], i, def, v;
   for(i=0;i<defs.length;i++){
     def=defs[i];
     v=effects && effects[def.key];
     if(!v) continue;
-    sign=v>0 ? '+' : '';
-    parts.push(def.label+' '+sign+(def.money ? ('£'+v+'m') : v));
+    parts.push(def.label+' '+_facilFormatEffect(def, v));
   }
   return parts.length ? parts.join('  ·  ') : 'No material change';
 }
@@ -42,9 +54,13 @@ function _buildFacilitatorNotes(){
   var modal=document.createElement('div');
   modal.className='facil-modal';
 
+  /* Clicking the backdrop (but not the modal itself) dismisses the dialog. */
+  root.onclick=function(e){ if(e.target===root) closeFacilitatorNotes(); };
+
   var top=document.createElement('div');
   top.className='facil-top';
   var h2=document.createElement('h2');
+  h2.id='facilTitle';
   h2.textContent='FACILITATOR NOTES';
   var sub=document.createElement('span');
   sub.className='facil-sub';
@@ -103,14 +119,29 @@ function _buildFacilitatorNotes(){
 
 function openFacilitatorNotes(){
   var root=_facilRoot();
-  if(!root) return;
+  if(!root || isFacilitatorNotesOpen()) return;
+  /* Freeze the simulation while the briefing is up, remembering the prior run
+     state so closing the dialog restores exactly what the facilitator had. */
+  _facilPrevPaused=paused;
+  paused=true;
+  if(typeof syncPauseButton==='function') syncPauseButton();
+  _facilPrevFocus=(document.activeElement && document.activeElement.blur) ? document.activeElement : null;
   _buildFacilitatorNotes();
   root.hidden=false;
+  var closeBtn=root.querySelector('.facil-close');
+  if(closeBtn) closeBtn.focus();
 }
 
 function closeFacilitatorNotes(){
   var root=_facilRoot();
-  if(root) root.hidden=true;
+  if(!root || root.hidden) return;
+  root.hidden=true;
+  paused=_facilPrevPaused;
+  if(typeof syncPauseButton==='function') syncPauseButton();
+  if(_facilPrevFocus && document.contains(_facilPrevFocus)){
+    _facilPrevFocus.focus();
+  }
+  _facilPrevFocus=null;
 }
 
 function toggleFacilitatorNotes(){

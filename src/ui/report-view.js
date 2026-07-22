@@ -46,11 +46,6 @@ function _metricDisplay(metric, value){
   return metric.money ? fmtMoney(value).replace('&pound;','GBP').replace('&#8722;','-') : String(Math.round(value));
 }
 
-function _metricBarPct(metric, value){
-  var p=Math.round(100*(value-metric.min)/(metric.max-metric.min));
-  return Math.max(4, Math.min(100,p));
-}
-
 function _reportMetricDelta(metric){
   var d=metric.cur-metric.last, tone;
   if(Math.abs(d)<0.05){
@@ -60,8 +55,40 @@ function _reportMetricDelta(metric){
   return {tone:tone, disp:metricDeltaText(metric, d)};
 }
 
+/* Board pack pages, in display order. Adding a page here is the only
+   change needed to add a page to the report - the shell, the filler
+   loop, the pager bounds, the page indicator and the page headers all
+   read from this.
+
+   build:       (data) -> HTML string for the page body
+   afterRender: optional (data) -> void, run after the page HTML is in
+                the DOM. For pages that draw into a <canvas>, which
+                cannot be done from an HTML string. */
+var REPORT_PAGES=[
+  {id:'results', title:'Prior Quarter Results', build:_fillReportPage1},
+  {id:'issue',   title:'Issue At Hand',         build:_fillReportPage2,
+   afterRender:function(data){ _drawReportIssueChart(data.issue); }},
+  {id:'options', title:'Options For Decision',  build:_fillReportPage3}
+];
+
+function _reportPageHead(pageId){
+  var i, n;
+  for(i=0;i<REPORT_PAGES.length;i++){
+    if(REPORT_PAGES[i].id===pageId){
+      n=i+1;
+      return '<div class="rep-page-head"><span>'+
+             (n<10?'0':'')+n+'</span><h3>'+
+             escapeHTML(REPORT_PAGES[i].title)+'</h3></div>';
+    }
+  }
+  return '';
+}
+
 function _reportShell(data){
-  var q=data.quarter;
+  var q=data.quarter, pages=[], i;
+  for(i=0;i<REPORT_PAGES.length;i++){
+    pages.push('<section class="rep-page" data-page="'+i+'"'+(i?' hidden':'')+'></section>');
+  }
   return [
     '<div class="rep-modal" role="dialog" aria-modal="true" aria-labelledby="repTitle">',
       '<div class="rep-top">',
@@ -71,15 +98,13 @@ function _reportShell(data){
         '<div class="chip">'+escapeHTML(q.displayName)+'</div>',
       '</div>',
       '<div class="rep-pages">',
-        '<section class="rep-page" data-page="0"></section>',
-        '<section class="rep-page" data-page="1" hidden></section>',
-        '<section class="rep-page" data-page="2" hidden></section>',
+        pages.join(''),
       '</div>',
       '<div class="rep-foot">',
         '<button class="btn" id="repPrev" data-report-action="prev">Back</button>',
         '<button class="btn" id="repNext" data-report-action="next">Next</button>',
         '<button class="btn" id="repNextQuarter" data-report-action="next-quarter" hidden>Next Quarter</button>',
-        '<span class="pgind" id="repPageInd">Page 1 / 3</span>',
+        '<span class="pgind" id="repPageInd">Page 1 / '+REPORT_PAGES.length+'</span>',
         '<span class="decision" id="repDecision"></span>',
         '<button class="btn" id="repClose" data-report-action="close">Close</button>',
       '</div>',
@@ -93,8 +118,8 @@ function _fillReportPage1(data){
     m=data.metrics[i];
     dl=_reportMetricDelta(m);
     bars.push('<div class="rep-bar-group">'+
-      '<i class="rep-bar last" style="height:'+_metricBarPct(m,m.last)+'%"></i>'+
-      '<i class="rep-bar cur" style="height:'+_metricBarPct(m,m.cur)+'%"></i></div>');
+      '<i class="rep-bar last" style="height:'+metricBarHeightPct(m,m.last)+'%"></i>'+
+      '<i class="rep-bar cur" style="height:'+metricBarHeightPct(m,m.cur)+'%"></i></div>');
     labels.push('<span>'+escapeHTML(m.full)+'</span>');
     rows.push('<div class="rep-metric-row"><b>'+escapeHTML(m.full)+'</b>'+
       '<span>'+_metricDisplay(m,m.cur)+'</span>'+
@@ -102,7 +127,7 @@ function _fillReportPage1(data){
   }
   return [
     '<div class="rep-paper">',
-      '<div class="rep-page-head"><span>01</span><h3>Prior Quarter Results</h3></div>',
+      _reportPageHead('results'),
       '<div class="rep-grid two">',
         '<div><h4>Metric movement</h4><div class="rep-bars">'+bars.join('')+'</div><div class="rep-x">'+labels.join('')+'</div></div>',
         '<div><h4>Board position</h4>',
@@ -118,7 +143,7 @@ function _fillReportPage2(data){
   var issue=data.issue;
   return [
     '<div class="rep-paper">',
-      '<div class="rep-page-head"><span>02</span><h3>Issue At Hand</h3></div>',
+      _reportPageHead('issue'),
       '<div class="rep-alert">'+escapeHTML(issue.tag)+'</div>',
       '<h4 class="rep-issue-title">'+escapeHTML(issue.title)+'</h4>',
       '<div class="rep-grid two">',
@@ -149,7 +174,7 @@ function _fillReportPage3(data){
   }
   return [
     '<div class="rep-paper">',
-      '<div class="rep-page-head"><span>03</span><h3>Options For Decision</h3></div>',
+      _reportPageHead('options'),
       '<div class="rep-options">'+html.join('')+'</div>',
       '<div class="rep-outcome" id="repOutcome" hidden></div>',
     '</div>'

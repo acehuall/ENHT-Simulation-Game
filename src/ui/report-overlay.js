@@ -70,7 +70,7 @@ function _chooseReportOption(index){
 }
 
 function openReport(){
-  var root=_reportRoot();
+  var root=_reportRoot(), i, page, section;
   if(!root) return;
   var existing=getDecisionForQuarter(getCurrentQuarterId());
   if(!quarterComplete && !existing){
@@ -84,14 +84,18 @@ function openReport(){
   REPORT.outcome=null;
   REPORT.data=_reportData();
   root.innerHTML=_reportShell(REPORT.data);
-  root.querySelector('[data-page="0"]').innerHTML=_fillReportPage1(REPORT.data);
-  root.querySelector('[data-page="1"]').innerHTML=_fillReportPage2(REPORT.data);
-  root.querySelector('[data-page="2"]').innerHTML=_fillReportPage3(REPORT.data);
+  for(i=0;i<REPORT_PAGES.length;i++){
+    page=REPORT_PAGES[i];
+    section=root.querySelector('[data-page="'+i+'"]');
+    if(section) section.innerHTML=page.build(REPORT.data);
+  }
   root.hidden=false;
   paused=true;
   reportOpenedForQuarter=true;
   syncPauseButton();
-  _drawReportIssueChart(REPORT.data.issue);
+  for(i=0;i<REPORT_PAGES.length;i++){
+    if(REPORT_PAGES[i].afterRender) REPORT_PAGES[i].afterRender(REPORT.data);
+  }
   _syncReportPages();
   if(existing) _showRecordedDecision(existing, ' (RECORDED)');
 
@@ -102,7 +106,7 @@ function openReport(){
       _syncReportPages();
       return;
     }
-    if(action==='next' && REPORT.page<2){
+    if(action==='next' && REPORT.page<REPORT_PAGES.length-1){
       REPORT.page++;
       _syncReportPages();
       return;

@@ -79,6 +79,107 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- BOARD PACK ---------------- */
+  console.log('\nboard pack:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+
+    const initial = await page.evaluate(() => ({
+      descriptorLength: REPORT_PAGES.length,
+      pageCount: document.querySelectorAll('.rep-page').length,
+      indicator: document.getElementById('repPageInd').textContent,
+      prevDisabled: document.getElementById('repPrev').disabled,
+      nextVisible: !document.getElementById('repNext').hidden
+    }));
+    eq(initial.pageCount, initial.descriptorLength, 'board pack: descriptor drives the shell');
+    eq(initial.indicator, 'Page 1 / ' + initial.descriptorLength, 'board pack: initial indicator uses descriptor length');
+    ok(initial.prevDisabled, 'board pack: back starts disabled');
+    ok(initial.nextVisible, 'board pack: next starts visible');
+
+    const forwardStates = [];
+    for (let step = 0; step <= initial.descriptorLength; step++) {
+      const state = await page.evaluate(() => ({
+        index: REPORT.page,
+        indicator: document.getElementById('repPageInd').textContent,
+        nextHidden: document.getElementById('repNext').hidden,
+        visiblePages: Array.from(document.querySelectorAll('.rep-page')).filter(p => !p.hidden).length
+      }));
+      forwardStates.push(state);
+      if (state.nextHidden) break;
+      await page.click('#repNext');
+    }
+    const last = forwardStates[forwardStates.length - 1];
+    ok(forwardStates.every(s => s.visiblePages === 1), 'board pack: exactly one page is visible while paging forward');
+    eq(last.index, initial.descriptorLength - 1, 'board pack: next stops on the last descriptor page');
+    eq(last.indicator, 'Page ' + initial.descriptorLength + ' / ' + initial.descriptorLength, 'board pack: last-page indicator uses descriptor length');
+
+    const headers = await page.evaluate(() => REPORT_PAGES.map((descriptor, i) => {
+      const section = document.querySelector('[data-page="' + i + '"]');
+      return {
+        title: section.querySelector('.rep-page-head h3').textContent,
+        number: section.querySelector('.rep-page-head span').textContent,
+        expectedTitle: descriptor.title,
+        expectedNumber: (i + 1 < 10 ? '0' : '') + (i + 1)
+      };
+    }));
+    ok(headers.every(h => h.title === h.expectedTitle), 'board pack: headers use descriptor titles');
+    ok(headers.every(h => h.number === h.expectedNumber), 'board pack: headers use descriptor page numbers');
+
+    const drawn = await page.evaluate(() => {
+      const cv = document.getElementById('repIssueChart');
+      if (!cv) return null;
+      const g = cv.getContext('2d');
+      const d = g.getImageData(0, 0, cv.width, cv.height).data;
+      let seen = 0;
+      for (let i = 0; i < d.length; i += 4000) if (d[i] !== 0 || d[i + 1] !== 0 || d[i + 2] !== 0) seen++;
+      return { w: cv.width, h: cv.height, seen };
+    });
+    ok(!!drawn && drawn.w > 0, 'board pack: issue chart has non-zero width');
+    ok(!!drawn && drawn.h > 0, 'board pack: issue chart has non-zero height');
+    ok(!!drawn && drawn.seen > 0, 'board pack: issue chart afterRender draws pixels');
+
+    for (let step = 0; step <= initial.descriptorLength; step++) {
+      const prevDisabled = await page.$eval('#repPrev', el => el.disabled);
+      if (prevDisabled) break;
+      await page.click('#repPrev');
+    }
+    const first = await page.evaluate(() => ({
+      index: REPORT.page,
+      indicator: document.getElementById('repPageInd').textContent,
+      prevDisabled: document.getElementById('repPrev').disabled
+    }));
+    eq(first.index, 0, 'board pack: back returns to the first page');
+    eq(first.indicator, 'Page 1 / ' + initial.descriptorLength, 'board pack: backward paging restores the first indicator');
+    ok(first.prevDisabled, 'board pack: back re-disables on the first page');
+
+    for (let step = 1; step < initial.descriptorLength; step++) await page.click('#repNext');
+    await page.click('.rep-option[data-index="0"]');
+    const recorded = await page.evaluate(() => ({
+      nextQuarterVisible: !document.getElementById('repNextQuarter').hidden,
+      outcomeVisible: !document.getElementById('repOutcome').hidden,
+      locked: REPORT.locked
+    }));
+    ok(recorded.nextQuarterVisible, 'board pack: next quarter appears after a decision');
+    ok(recorded.outcomeVisible && recorded.locked, 'board pack: recorded-decision UI appears after a decision');
+
+    await page.click('#repPrev');
+    const afterDecisionBack = await page.evaluate(() => REPORT.page);
+    eq(afterDecisionBack, initial.descriptorLength - 2, 'board pack: back still works after a decision');
+    await page.click('#repNext');
+    const afterDecisionNext = await page.evaluate(() => ({
+      index: REPORT.page,
+      visiblePages: Array.from(document.querySelectorAll('.rep-page')).filter(p => !p.hidden).length
+    }));
+    eq(afterDecisionNext.index, initial.descriptorLength - 1, 'board pack: next still works after a decision');
+    eq(afterDecisionNext.visiblePages, 1, 'board pack: decision paging keeps exactly one page visible');
+
+    ok(page._errors.length === 0, 'board pack: no console/page errors');
+    await page.close();
+  }
+
   /* ---------------- RESTART ---------------- */
   console.log('\nrestart:');
   {

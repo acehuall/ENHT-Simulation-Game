@@ -84,6 +84,24 @@ function render(){
   for(var ti=0;ti<defs.length;ti++){
     var def=getMetricByIndex(ti), v=getMetricValue(def.key), d=getMetricDelta(def.key);
     $('v'+ti).innerHTML = def.money ? fmtMoney(v) : String(Math.round(v));
+    var band=getMetricBand(def.key,v);
+    var tickEl=$('t'+ti);
+    var bandId=band && band.id;
+    var bandText=band ? (band.label+' - '+band.line) : '';
+    var plainValue=def.money
+      ? ((v<0?'-':'')+'\u00A3'+Math.abs(v).toFixed(1)+'m')
+      : String(Math.round(v));
+    if(tickEl._bandId!==bandId){
+      tickEl._bandId=bandId;
+      tickEl.className='tick'+(band ? ' band-'+band.tone : '');
+      tickEl.title=bandText;
+    }
+    if(tickEl._ariaValue!==plainValue || tickEl._ariaBandId!==bandId){
+      tickEl._ariaValue=plainValue;
+      tickEl._ariaBandId=bandId;
+      tickEl.setAttribute('aria-label',
+        def.full+': '+plainValue+(bandText ? '. '+bandText : ''));
+    }
     var de=$('d'+ti);
     if(Math.abs(d)<0.05){
       de.textContent='-';
@@ -94,6 +112,10 @@ function render(){
       de.className='td '+(up?'up':'dn');
     }
   }
+  var posture=getBoardPosture(METRIC_CUR);
+  var pEl=$('postureStrip');
+  if(pEl.textContent!==posture.label) pEl.textContent=posture.label;
+  pEl.className='posture band-'+posture.tone;
   drawStatsChart();
   drawEkg(clock);
   if(typeof updateEventFeed==='function') updateEventFeed(simT);

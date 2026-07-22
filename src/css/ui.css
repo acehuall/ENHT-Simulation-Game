@@ -72,10 +72,26 @@
 .sceneNav .btn[disabled]:hover{border-color:#333c58; color:#cdd5e6;}
 
 .tick{display:flex; align-items:baseline; gap:6px; border-bottom:1px solid #1b2133; padding:5px 0;}
+.tick:focus{outline:2px solid var(--teal); outline-offset:-2px;}
+.tick:focus:not(:focus-visible){outline:none;}
 .tick .tl{font-size:10px; color:var(--dim); letter-spacing:1px; width:60px;}
 .tick .tv{font-size:17px; font-weight:bold; margin-left:auto;}
 .tick .td{font-size:10px; width:52px; text-align:right;}
 .up{color:var(--green);} .dn{color:var(--red);} .fl{color:var(--dim);}
+.tick.band-critical .tv{color:var(--critical);}
+.tick.band-warn     .tv{color:var(--amber);}
+.tick.band-neutral  .tv{color:var(--ink);}
+.tick.band-good     .tv{color:var(--green);}
+.tick.band-great    .tv{color:var(--teal);}
+
+.posture{font-size:10px; letter-spacing:1px; text-align:center;
+  padding:4px 0; border-bottom:1px solid #1b2133;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+.posture.band-critical{color:var(--critical);}
+.posture.band-warn{color:var(--amber);}
+.posture.band-neutral{color:var(--dim);}
+.posture.band-good{color:var(--green);}
+.posture.band-great{color:var(--teal);}
 
 .chartbox{border:2px solid var(--line); background:#0a0c13; padding:4px; margin-top:6px;}
 .chartbox canvas{width:100%; height:auto; display:block; image-rendering:pixelated;}

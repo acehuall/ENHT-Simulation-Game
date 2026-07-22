@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Northbrook General - Tilemap Demo</title>
+<title>Trust in Balance</title>
 <!-- Retro faces for the pregame (Press Start 2P display, VT323 body).
      Both are bundled locally as .ttf under src/Assets/fonts and loaded via
      @font-face in src/css/pregame.css, so the sequence works fully offline.
@@ -20,7 +20,7 @@
     <div class="nsq">N</div>
     <div>
       <h1>NORTHBROOK GENERAL HOSPITAL</h1>
-      <div class="sub">TRUST IN BALANCE - SIMULATION VIEW (PHASE B MOCK)</div>
+      <div class="sub">TRUST IN BALANCE</div>
     </div>
     <div class="chip" id="quarterChip">Q1 - INFECTION PRESSURE</div>
   </div>
@@ -59,6 +59,10 @@
           <button class="btn" id="btnPrevScene">Back</button>
           <button class="btn" id="btnNextScene">Forward</button>
         </div>
+        <div class="feed" id="eventFeed" aria-label="Simulation event feed">
+          <div class="feed-head">EVENT FEED</div>
+          <ul class="feed-list" id="eventFeedList" aria-live="polite"></ul>
+        </div>
       </div>
 
       <div class="panel">
@@ -92,6 +96,7 @@
     <button class="btn" id="btnPause">Pause</button>
     <button class="btn" id="btnRestart">Restart Q</button>
     <button class="btn" id="btnReport">Board Pack</button>
+    <button class="btn" id="btnNotes" title="Facilitator notes (F)">Notes</button>
     <button class="btn" id="btnFs">Fullscreen</button>
     <label class="ck quarterControl">Quarter
       <select id="quarterSelect" aria-label="Debug quarter selector">
@@ -113,6 +118,7 @@
   </details>
 
 </div>
+<div id="facilRoot" class="facil-root" hidden role="dialog" aria-modal="true" aria-labelledby="facilTitle" aria-label="Facilitator notes"></div>
 <div id="repRoot" class="rep-root" hidden></div>
 <div id="pregameRoot" class="pregame-root" aria-live="polite"></div>
 <script src="src/data/map-data.js"></script>
@@ -137,6 +143,8 @@
 <script src="src/engine/timeline-compiler.js"></script>
 <script src="src/engine/timeline-visuals.js"></script>
 <script src="src/engine/decision-controller.js"></script>
+<script src="src/ui/event-feed.js"></script>
+<script src="src/ui/facilitator.js"></script>
 <script src="src/ui/controls.js"></script>
 <script src="src/ui/telemetry.js"></script>
 <script src="src/ui/stats-chart.js"></script>

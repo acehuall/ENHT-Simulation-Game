@@ -96,6 +96,7 @@ function render(){
   }
   drawStatsChart();
   drawEkg(clock);
+  if(typeof updateEventFeed==='function') updateEventFeed(simT);
 }
 
 function frame(now){

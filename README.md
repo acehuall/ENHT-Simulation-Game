@@ -115,7 +115,24 @@ Suggested hotkeys:
 | `F` | Show facilitator notes |
 | `R` | Restart game |
 
-Restart should require confirmation to avoid accidental resets.
+Restart should require confirmation to avoid accidental resets. The facilitator
+notes are also reachable from the visible **Notes** button; opening them pauses
+the simulation and restores the previous run state on close. While the notes or
+board pack are open, the other shortcuts are suppressed.
+
+## Tests
+
+Browser-driven UI tests live in `tests/` (Playwright). They cover skip, restart,
+rewind, the fullscreen chrome, and the facilitator-notes modal. The game itself
+stays dependency-free; the tests keep their own `package.json`.
+
+```
+cd tests
+npm install
+npm test
+```
+
+The Chromium binary is auto-detected; override with `PW_CHROMIUM=/path/to/chrome`.
 
 ## Design Principles
 

@@ -48,6 +48,25 @@
   color:var(--dim); font-size:8px; line-height:1; letter-spacing:1px;
 }
 .pbar .monthmark-end:after{transform:translateX(-100%);}
+.feed{border:2px solid var(--line); background:#0a0c13;}
+.feed-head{font-size:9px; color:var(--dim); letter-spacing:2px; padding:5px 8px;
+           border-bottom:2px solid var(--line);}
+/* Fixed height (not max-height) so appending entries scrolls the list instead
+   of growing the panel and shifting everything below it. */
+.feed-list{list-style:none; margin:0; padding:4px 0; height:132px; overflow-y:auto;}
+.feed-entry{display:flex; gap:8px; align-items:baseline; padding:3px 8px;
+            font-size:11px; line-height:1.35; border-left:3px solid var(--line);}
+.feed-entry+.feed-entry{border-top:1px solid #141a29;}
+.feed-time{flex:0 0 62px; color:var(--dim); font-size:9px; letter-spacing:1px; white-space:nowrap;}
+.feed-text{color:var(--ink);}
+.feed-quarter{border-left-color:var(--teal);}
+.feed-quarter .feed-text{color:var(--teal);}
+.feed-decision{border-left-color:var(--amber);}
+.feed-decision .feed-text{color:var(--amber);}
+.feed-pressure{border-left-color:var(--red);}
+.feed-response{border-left-color:var(--teal);}
+.feed-consequence{border-left-color:var(--green);}
+
 .sceneNav{display:flex; justify-content:flex-end; gap:8px;}
 .sceneNav .btn[disabled]{opacity:.45; cursor:default;}
 .sceneNav .btn[disabled]:hover{border-color:#333c58; color:#cdd5e6;}
@@ -88,6 +107,36 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .leg pre{background:#0a0c13; border:1px solid var(--line); padding:10px; font-size:11px;
          line-height:1.35; letter-spacing:2px; color:#aab4c8; overflow:auto; margin-top:8px;}
 .leg b{color:var(--ink);}
+
+.facil-root[hidden]{display:none;}
+.facil-root{
+  position:fixed; inset:0; z-index:32; display:flex; align-items:center; justify-content:center;
+  background:rgba(5,7,12,.86); padding:18px; color:var(--ink);
+}
+.facil-modal{
+  width:min(720px,96vw); max-height:92vh; display:flex; flex-direction:column;
+  border:2px solid var(--line); background:#101522; box-shadow:0 10px 0 #05070c;
+}
+.facil-top{display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:2px solid var(--line);}
+.facil-top h2{font-size:14px; letter-spacing:2px;}
+.facil-sub{font-size:10px; color:var(--amber); letter-spacing:1px;}
+.facil-close{margin-left:auto;}
+.facil-body{min-height:0; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:8px;}
+.facil-h{font-size:10px; color:var(--dim); letter-spacing:2px; border-bottom:1px solid var(--line);
+         padding-bottom:4px; margin-top:4px;}
+.facil-p{font-size:12px; line-height:1.5; color:var(--ink);}
+.facil-risk{font-size:11px; font-weight:bold; letter-spacing:.5px; color:#ffb3b3;
+            border:2px solid var(--red); background:rgba(224,82,82,.16); padding:6px 8px;}
+.facil-option{border:2px solid var(--line); background:#0a0c13; padding:8px 10px; display:flex; flex-direction:column; gap:5px;}
+.facil-opt-title{font-size:12px; font-weight:bold; letter-spacing:1px; color:var(--teal);}
+.facil-opt-desc{font-size:11px; line-height:1.4; color:var(--ink);}
+.facil-procon{display:grid; grid-template-columns:1fr 1fr; gap:2px 12px;}
+.facil-pc-head{font-size:9px; letter-spacing:1px; color:var(--dim);}
+.facil-pc{font-size:11px; line-height:1.35;}
+.facil-pc.good{color:var(--green);}
+.facil-pc.bad{color:var(--red);}
+.facil-effects{font-size:10px; letter-spacing:.5px; color:var(--dim); border-top:1px solid var(--line); padding-top:5px;}
+@media (max-width:640px){ .facil-procon{grid-template-columns:1fr;} }
 
 .rep-root[hidden]{display:none;}
 .rep-root{

@@ -1,6 +1,7 @@
 :root{
   --bg:#0c0e15; --panel:#12151f; --panel2:#161a27; --line:#242b40;
   --ink:#e8ecf5; --dim:#8b94ab; --teal:#23c4b4; --amber:#e9b44c; --red:#e05252; --green:#5fbf72;
+  --critical:var(--red); --neutral:var(--dim);
 }
 *{box-sizing:border-box; margin:0; padding:0;}
 body{

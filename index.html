@@ -67,12 +67,13 @@
 
       <div class="panel">
         <h2>BOARD METRICS</h2>
-        <div class="tick"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">&mdash;</span></div>
-        <div class="tick"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
-        <div class="tick"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">&mdash;</span></div>
-        <div class="tick"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">&mdash;</span></div>
-        <div class="tick"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">&mdash;</span></div>
-        <div class="tick"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">&mdash;</span></div>
+        <div class="posture" id="postureStrip" aria-live="polite">BOARD: STABLE</div>
+        <div class="tick" id="t0" tabindex="0"><span class="tl">BUDGET</span><span class="tv" id="v0">£0.0m</span><span class="td" id="d0">&mdash;</span></div>
+        <div class="tick" id="t1" tabindex="0"><span class="tl">WAITING</span><span class="tv" id="v1">68</span><span class="td" id="d1">&mdash;</span></div>
+        <div class="tick" id="t2" tabindex="0"><span class="tl">PAT SAT</span><span class="tv" id="v2">63</span><span class="td" id="d2">&mdash;</span></div>
+        <div class="tick" id="t3" tabindex="0"><span class="tl">MORALE</span><span class="tv" id="v3">58</span><span class="td" id="d3">&mdash;</span></div>
+        <div class="tick" id="t4" tabindex="0"><span class="tl">SAFETY</span><span class="tv" id="v4">66</span><span class="td" id="d4">&mdash;</span></div>
+        <div class="tick" id="t5" tabindex="0"><span class="tl">REP</span><span class="tv" id="v5">60</span><span class="td" id="d5">&mdash;</span></div>
         <div class="chartbox">
           <div class="chartlegend" aria-label="Board metric chart legend">
             <span><i class="chartlegend-waiting"></i>WAITING</span>
@@ -129,6 +130,7 @@
 <script src="src/data/agents-data.js"></script>
 <script src="src/engine/agent-renderer.js"></script>
 <script src="src/data/scenario-data.js"></script>
+<script src="src/engine/metric-semantics.js"></script><!-- Deliberately before stateful playback metrics. -->
 <script src="src/data/quarters-data.js"></script>
 <script src="src/data/quarter-events.js"></script>
 <script src="src/data/outcome-drama-data.js"></script>

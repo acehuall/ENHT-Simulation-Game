@@ -792,11 +792,20 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
   {
     const page = await freshPage(browser);
     const s = await page.evaluate(() => {
+      /* recursively deep-freeze so a mutation of any nested stats object throws */
+      function deepFreeze(obj) {
+        if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+          Object.freeze(obj);
+          Object.keys(obj).forEach(k => deepFreeze(obj[k]));
+        }
+        return obj;
+      }
+
       /* 7.1 I&E reconciliation across the full budget range, with and without
-         an authored line override. */
+         an authored line override (keyed on a real quarter:option id). */
       let maxErr = 0, maxErrOverride = 0;
-      REPORTING_OVERRIDES['qtest:opt'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
-      const overrideCtx = { quarterId: 'qtest', optionId: 'opt' };
+      REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
+      const overrideCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
       for (let b = -5; b <= 2.00001; b += 0.1) {
         const budget = Math.round(b * 10) / 10;
         const stats = Object.assign(initialMetricStats(), { budget });
@@ -804,7 +813,7 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
         maxErrOverride = Math.max(maxErrOverride,
           Math.abs(deriveIncomeExpenditure(stats, overrideCtx).surplus - budget));
       }
-      delete REPORTING_OVERRIDES['qtest:opt'];
+      delete REPORTING_OVERRIDES['Q1:hire_temporary_staff'];
 
       /* 7.2 determinism - identical (stats, ctx) gives deeply equal output. */
       const detStats = Object.assign(initialMetricStats(), { waiting: 80, morale: 40, safety: 45, patsat: 48, budget: -2 });
@@ -815,11 +824,15 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
         JSON.stringify(deriveWorkforce(detStats, detCtx)) === JSON.stringify(deriveWorkforce(detStats, detCtx)) &&
         JSON.stringify(deriveQuality(detStats, detCtx)) === JSON.stringify(deriveQuality(detStats, detCtx));
 
-      /* 7.3 no mutation - deep-frozen stats and ctx must not throw. */
+      /* 7.3 no mutation - recursively deep-frozen stats and ctx must not throw. */
       let noThrow = true;
       try {
-        const frozenStats = Object.freeze(Object.assign(initialMetricStats(), { waiting: 75 }));
-        const frozenCtx = Object.freeze({ quarterId: 'q2', optionId: 'invest', outcome: null, history: Object.freeze([]) });
+        const frozenStats = deepFreeze(Object.assign(initialMetricStats(), { waiting: 75 }));
+        const frozenCtx = deepFreeze({
+          quarterId: 'Q2', optionId: 'discharge_partnership',
+          outcome: { startStats: initialMetricStats(), endStats: initialMetricStats() },
+          history: [{ startStats: initialMetricStats(), endStats: initialMetricStats() }]
+        });
         deriveIncomeExpenditure(frozenStats, frozenCtx);
         deriveOperational(frozenStats, frozenCtx);
         deriveWorkforce(frozenStats, frozenCtx);
@@ -830,30 +843,72 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
         getReportSection('quality', frozenStats, frozenCtx);
       } catch (e) { noThrow = false; }
 
-      /* 7.4 direction - raising waiting (worsening) moves derived figures the
-         way the 5.3 table states. */
+      /* 7.4 direction - move each source metric in its WORSENING direction and
+         check every derived figure moves the way the 5.3 table states. Budget
+         and every index worsen downward; waiting worsens upward. */
       const base = initialMetricStats();
-      const hi = Object.assign({}, base, { waiting: base.waiting + 10 });
-      const opBase = deriveOperational(base, null), opHi = deriveOperational(hi, null);
-      const clinicalOf = stats => deriveIncomeExpenditure(stats, null).lines.find(l => l.id === 'clinicalIncome').actual;
+      const withD = changes => Object.assign({}, base, changes);
+      const lineOf = (stats, id) => deriveIncomeExpenditure(stats, null).lines.find(l => l.id === id).actual;
+
+      const budgetLow = withD({ budget: -4 });
+      const moraleLow = withD({ morale: base.morale - 15 });
+      const waitingHi = withD({ waiting: base.waiting + 15 });
+      const safetyLow = withD({ safety: base.safety - 15 });
+      const safetyVeryLow = withD({ safety: 20 });
+      const patsatLow = withD({ patsat: base.patsat - 15 });
+      const repLow = withD({ rep: base.rep - 15 });
+
+      const opBase = deriveOperational(base, null);
+      const opWait = deriveOperational(waitingHi, null);
+      const opSafety = deriveOperational(safetyLow, null);
+      const wfBase = deriveWorkforce(base, null);
+      const wfMorale = deriveWorkforce(moraleLow, null);
+      const wfRep = deriveWorkforce(repLow, null);
+      const qBase = deriveQuality(base, null);
+      const qSafety = deriveQuality(safetyLow, null);
+      const qSafetyVery = deriveQuality(safetyVeryLow, null);
+      const qPatsat = deriveQuality(patsatLow, null);
+
       const direction = {
-        occupancyUp: opHi.occupancy > opBase.occupancy,
-        losUp: opHi.losPct > opBase.losPct,
-        dtocUp: opHi.dtocBeds > opBase.dtocBeds,
-        cancelledUp: opHi.cancelledOps > opBase.cancelledOps,
-        incomeDown: clinicalOf(hi) < clinicalOf(base)
+        /* finance */
+        payUpOnBudget: lineOf(budgetLow, 'paySpend') > lineOf(base, 'paySpend'),
+        nonPayUpOnBudget: lineOf(budgetLow, 'nonPaySpend') > lineOf(base, 'nonPaySpend'),
+        payUpOnMorale: lineOf(moraleLow, 'paySpend') > lineOf(base, 'paySpend'),
+        agencyUpOnMorale: lineOf(moraleLow, 'agencySpend') > lineOf(base, 'agencySpend'),
+        incomeDownOnWaiting: lineOf(waitingHi, 'clinicalIncome') < lineOf(base, 'clinicalIncome'),
+        /* operations */
+        occupancyUp: opWait.occupancy > opBase.occupancy,
+        losUp: opWait.losPct > opBase.losPct,
+        dtocUp: opWait.dtocBeds > opBase.dtocBeds,
+        cancelledUp: opWait.cancelledOps > opBase.cancelledOps,
+        handoverUpOnWaiting: opWait.ambulanceHandover > opBase.ambulanceHandover,
+        handoverUpOnSafety: opSafety.ambulanceHandover > opBase.ambulanceHandover,
+        /* workforce */
+        vacancyUp: wfMorale.vacancyRate > wfBase.vacancyRate,
+        turnoverUp: wfMorale.turnover > wfBase.turnover,
+        sicknessUp: wfMorale.sickness > wfBase.sickness,
+        bankAgencyUp: wfMorale.bankAgencySpend > wfBase.bankAgencySpend,
+        surveyDownOnMorale: wfMorale.surveyScore < wfBase.surveyScore,
+        surveyDownOnRep: wfRep.surveyScore < wfBase.surveyScore,
+        /* quality */
+        incidentsUp: qSafety.incidents > qBase.incidents,
+        neverEventsUp: qSafetyVery.neverEvents > qBase.neverEvents,
+        harmFreeDown: qSafety.harmFreePct < qBase.harmFreePct,
+        complaintsUp: qPatsat.complaints > qBase.complaints,
+        fftDown: qPatsat.fftScore < qBase.fftScore
       };
 
-      /* 7.5 overrides - specificity, null ctx, and an authored 0. */
+      /* 7.5 overrides - specificity, null ctx, and an authored 0, using real
+         game ids. Q2 authors dtocBeds=41; Q2:discharge_partnership authors 38. */
       const ovStats = initialMetricStats();
-      REPORTING_OVERRIDES['qz'] = { operational: { dtocBeds: 0 } };
+      REPORTING_OVERRIDES['Q3'] = { operational: { dtocBeds: 0 } };
       const overrides = {
-        quarterOnly: deriveOperational(ovStats, { quarterId: 'q2', optionId: 'other' }).dtocBeds,
-        quarterOption: deriveOperational(ovStats, { quarterId: 'q2', optionId: 'invest' }).dtocBeds,
+        quarterOnly: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'open_escalation_ward' }).dtocBeds,
+        quarterOption: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'discharge_partnership' }).dtocBeds,
         nullCtx: deriveOperational(ovStats, null).dtocBeds,
-        authoredZero: deriveOperational(ovStats, { quarterId: 'qz' }).dtocBeds
+        authoredZero: deriveOperational(ovStats, { quarterId: 'Q3' }).dtocBeds
       };
-      delete REPORTING_OVERRIDES['qz'];
+      delete REPORTING_OVERRIDES['Q3'];
 
       /* 7.6 history - empty on a fresh state, one entry per committed decision
          in round order. */
@@ -885,12 +940,29 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     ok(s.maxErr < 1e-9, 'reporting: I&E surplus reconciles to budget across the range');
     ok(s.maxErrOverride < 1e-9, 'reporting: I&E still reconciles with an authored line override');
     ok(s.deterministic, 'reporting: every derive* is deterministic for identical inputs');
-    ok(s.noThrow, 'reporting: derive* never mutate deep-frozen stats or ctx');
+    ok(s.noThrow, 'reporting: derive* never mutate recursively deep-frozen stats or ctx');
+    ok(s.direction.payUpOnBudget, 'reporting: lowering budget increases pay spend');
+    ok(s.direction.nonPayUpOnBudget, 'reporting: lowering budget increases non-pay spend');
+    ok(s.direction.payUpOnMorale, 'reporting: lowering morale increases pay spend');
+    ok(s.direction.agencyUpOnMorale, 'reporting: lowering morale increases bank & agency spend');
+    ok(s.direction.incomeDownOnWaiting, 'reporting: raising waiting decreases clinical income');
     ok(s.direction.occupancyUp, 'reporting: raising waiting increases occupancy');
     ok(s.direction.losUp, 'reporting: raising waiting increases length of stay');
     ok(s.direction.dtocUp, 'reporting: raising waiting increases delayed transfers');
     ok(s.direction.cancelledUp, 'reporting: raising waiting increases cancelled ops');
-    ok(s.direction.incomeDown, 'reporting: raising waiting decreases clinical income');
+    ok(s.direction.handoverUpOnWaiting, 'reporting: raising waiting increases ambulance handovers');
+    ok(s.direction.handoverUpOnSafety, 'reporting: lowering safety increases ambulance handovers');
+    ok(s.direction.vacancyUp, 'reporting: lowering morale increases vacancy rate');
+    ok(s.direction.turnoverUp, 'reporting: lowering morale increases turnover');
+    ok(s.direction.sicknessUp, 'reporting: lowering morale increases sickness absence');
+    ok(s.direction.bankAgencyUp, 'reporting: lowering morale increases bank & agency spend');
+    ok(s.direction.surveyDownOnMorale, 'reporting: lowering morale decreases staff survey score');
+    ok(s.direction.surveyDownOnRep, 'reporting: lowering reputation decreases staff survey score');
+    ok(s.direction.incidentsUp, 'reporting: lowering safety increases moderate-harm incidents');
+    ok(s.direction.neverEventsUp, 'reporting: lowering safety increases never events');
+    ok(s.direction.harmFreeDown, 'reporting: lowering safety decreases harm-free care');
+    ok(s.direction.complaintsUp, 'reporting: lowering patient satisfaction increases complaints');
+    ok(s.direction.fftDown, 'reporting: lowering patient satisfaction decreases FFT recommend');
     eq(s.overrides.quarterOnly, 41, 'reporting: quarter override applies');
     eq(s.overrides.quarterOption, 38, 'reporting: quarter:option override beats quarter override');
     eq(s.overrides.nullCtx, 35, 'reporting: null ctx applies no override');
@@ -946,6 +1018,26 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     });
     ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width');
     ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels');
+
+    /* switching tabs preserves the report body's scroll position. Shrink the
+       viewport so the panels overflow, scroll to a value both the source and
+       destination tab can hold (so nothing is clamped), then assert the switch
+       leaves scrollTop untouched. */
+    await page.setViewportSize({ width: 1200, height: 360 });
+    const scroll = await page.evaluate(() => {
+      const pages = document.querySelector('.rep-pages');
+      setPerfTab(1); const srcMax = pages.scrollHeight - pages.clientHeight; // operations
+      setPerfTab(3); const dstMax = pages.scrollHeight - pages.clientHeight; // quality
+      const target = Math.min(srcMax, dstMax) - 4;
+      setPerfTab(1);
+      pages.scrollTop = target;
+      const set = pages.scrollTop;
+      setPerfTab(3);
+      return { set, afterSwitch: pages.scrollTop, target };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    ok(scroll.set > 0, 'performance: report body scrolls with the shrunk viewport');
+    eq(scroll.afterSwitch, scroll.set, 'performance: switching tabs preserves scroll position');
 
     /* clicking a tab switches without changing the page or scroll */
     await page.click('.rep-perf-tab[data-perf-tab="2"]');

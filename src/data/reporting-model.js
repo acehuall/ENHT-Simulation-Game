@@ -59,10 +59,12 @@ var REPORTING_COEFFS = {
 };
 
 /* 'quarterId:optionId' wins over 'quarterId', which wins over the derived
-   value. Longest (most specific) key wins. */
+   value. Longest (most specific) key wins. Keys use real game IDs: Q2 is the
+   Capacity Strain quarter, where delayed transfers of care are the headline
+   figure, and funding the discharge partnership pulls that figure down further. */
 var REPORTING_OVERRIDES = {
-  'q2':        { operational: { dtocBeds: 41 } },
-  'q2:invest': { operational: { dtocBeds: 38 } }
+  'Q2':                      { operational: { dtocBeds: 41 } },
+  'Q2:discharge_partnership': { operational: { dtocBeds: 38 } }
 };
 
 /* Short authored commentary keyed off the source metric's current band tone,

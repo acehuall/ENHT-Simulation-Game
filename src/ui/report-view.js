@@ -407,57 +407,53 @@ function _fillReportPerformance(data){
   ].join('');
 }
 
-/* Waiting-times trend from the committed history (oldest first). Falls back to
-   the single current value when no decisions have been committed yet. Lower is
-   better, so the series is plotted directly on a 0..100 index. */
+/* Waiting-times trend from the committed history (oldest first), rendered
+   through the shared line-chart helper. The year-opening position is prepended
+   so the first committed quarter reads as movement from the year's starting
+   point (section 4: GAME.decisions[0].startStats, or initialMetricStats() when
+   empty). Falls back to the single current value when no decisions exist yet.
+   Lower is better, so the series is plotted directly on a 0..100 index. */
 function _drawPerformanceCharts(data){
   var cv=$('repWaitTrend');
   if(!cv) return;
   var g=cv.getContext('2d');
-  var points=[], i, h=data.snapshot.history;
-  for(i=0;i<h.length;i++) points.push(h[i].endStats.waiting);
-  if(!points.length) points.push(data.snapshot.endStats.waiting);
+  var h=data.snapshot.history, labels=[], values=[], i;
 
-  var W=480, H=180, L=32, R=12, T=14, B=26;
+  if(h.length){
+    /* opening value of the year, then each committed quarter's close */
+    values.push(h[0].startStats.waiting);
+    labels.push('OPEN');
+    for(i=0;i<h.length;i++){
+      values.push(h[i].endStats.waiting);
+      labels.push(h[i].quarterId);
+    }
+  }else{
+    values.push(data.snapshot.endStats.waiting);
+    labels.push('NOW');
+  }
+
+  var W=480, H=180;
   var ss=Math.max(2, Math.ceil((window.devicePixelRatio||1)*2));
   if(cv.width!==W*ss){ cv.width=W*ss; cv.height=H*ss; }
   g.setTransform(ss,0,0,ss,0,0);
-  var maxV=100;
-  var yOf=function(v){ return T+(H-T-B)*(1-v/maxV); };
-  var n=points.length;
-  var xOf=function(idx){ return n<=1 ? (L+(W-L-R)/2) : (L+(W-L-R)*idx/(n-1)); };
 
-  g.clearRect(0,0,W,H);
-  g.fillStyle='#fbfcfe'; g.fillRect(0,0,W,H);
-  g.font='bold 9px "Courier New", monospace';
-  g.textAlign='right'; g.textBaseline='alphabetic';
-  var v;
-  for(v=0;v<=maxV;v+=25){
-    var y=Math.round(yOf(v));
-    g.fillStyle='#d4dae7'; g.fillRect(L,y,W-L-R,1);
-    g.fillStyle='#42557a'; g.fillText(String(v),L-5,y+3);
+  var n=values.length;
+  var xFrac=function(idx){ return n<=1 ? 0.5 : idx/(n-1); };
+  var points=[], xLabels=[];
+  for(i=0;i<n;i++){
+    points.push({xFrac:xFrac(i), value:values[i]});
+    xLabels.push({xFrac:xFrac(i), text:labels[i], align:'center'});
   }
-  g.fillStyle='#141b30';
-  g.fillRect(L,T-4,2,H-T-B+4);
-  g.fillRect(L,H-B,W-L-R,2);
 
-  /* the line */
-  g.strokeStyle='#23c4b4'; g.lineWidth=2;
-  g.beginPath();
-  for(i=0;i<n;i++){
-    var px=xOf(i), py=yOf(points[i]);
-    if(i===0) g.moveTo(px,py); else g.lineTo(px,py);
-  }
-  g.stroke();
-  /* point markers + quarter labels */
-  g.fillStyle='#141b30';
-  g.textAlign='center'; g.textBaseline='top';
-  for(i=0;i<n;i++){
-    var mx=xOf(i), my=yOf(points[i]);
-    g.fillStyle='#141b30'; g.fillRect(Math.round(mx)-2,Math.round(my)-2,4,4);
-    var lbl=(h.length && h[i]) ? h[i].quarterId : 'NOW';
-    g.fillStyle='#42557a'; g.fillText(String(lbl), Math.round(mx), H-B+5);
-  }
+  renderLineChart(g, {
+    W:W, H:H, pad:{l:32, r:12, t:14, b:26}, maxV:100,
+    yTicks:[0,25,50,75,100], font:'bold 9px "Courier New", monospace',
+    colors:{bg:'#fbfcfe', grid:'#d4dae7', yLabel:'#42557a', xLabel:'#42557a'},
+    yLabelDx:5, xLabelDy:5,
+    series:[{color:'#23c4b4', width:2, points:points, marker:'all', markerSize:4}],
+    xLabels:xLabels,
+    frame:'axis', frameColor:'#141b30'
+  });
 }
 
 function _drawReportIssueChart(issue){

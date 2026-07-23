@@ -253,6 +253,55 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-root .flat{color:#4a5470;}
 .rep-outcome{border:2px solid #23c4b4; background:#e9f6f4; padding:10px; margin-top:10px;}
 
+/* ---------- Performance Analysis page (phase 3) ---------- */
+.rep-perf-tabs{display:flex; gap:6px; flex-wrap:wrap; border-bottom:3px solid #23c4b4; margin-bottom:14px;}
+.rep-perf-tab{
+  border:2px solid #141b30; border-bottom:none; background:#c8d0e0; color:#1a2236;
+  padding:7px 13px; font-family:inherit; font-size:11px; letter-spacing:1px;
+  text-transform:uppercase; cursor:pointer;
+}
+/* Tone styling reuses the phase-1 band-{tone} class contract, not a data
+   attribute. Neutral maps to the paper ink (not --ink, which is tuned for the
+   dark panel and would vanish on the light board pack). */
+.rep-perf-tab.band-critical{color:var(--critical);}
+.rep-perf-tab.band-warn{color:var(--amber);}
+.rep-perf-tab.band-neutral{color:#1a2236;}
+.rep-perf-tab.band-good{color:var(--green);}
+.rep-perf-tab.band-great{color:var(--teal);}
+/* Active tab is dark-highlighted; light text always wins for legibility. */
+.rep-perf-tab.active{background:#141b30; color:#e8ecf5;}
+.rep-perf-panel[hidden]{display:none;}
+
+.rep-perf-table{width:100%; border-collapse:collapse; font-size:12px; margin-bottom:12px;}
+.rep-perf-table th,.rep-perf-table td{border:1px solid #c3cbdc; padding:6px 8px; text-align:right;}
+.rep-perf-table th{background:#eef2f8; color:#4a5470; letter-spacing:1px; text-transform:uppercase; font-size:10px;}
+.rep-perf-table td:first-child,.rep-perf-table th:first-child{text-align:left;}
+.rep-perf-surplus td{border-top:3px solid #141b30; font-weight:bold; background:#eef2f8;}
+
+.rep-perf-list{display:flex; flex-direction:column; gap:6px;}
+.rep-perf-row{display:flex; align-items:baseline; gap:10px; background:#eef2f8; border:1px solid #c3cbdc; padding:7px 9px;}
+.rep-perf-row .lbl{font-weight:bold; letter-spacing:.5px; min-width:200px;}
+.rep-perf-row .val{font-weight:bold; font-size:14px;}
+.rep-perf-row .cmt{margin-left:auto; text-align:right; font-size:10px; color:#4a5470; max-width:360px; line-height:1.35;}
+
+.rep-perf-note{font-size:11px; color:#4a5470; margin:6px 0 10px; line-height:1.4;}
+.rep-perf-band{font-weight:bold; letter-spacing:1px;}
+.rep-perf-chart{width:100%; height:auto; border:2px solid #141b30; background:#fbfcfe; image-rendering:auto; margin-bottom:10px;}
+.rep-perf-alerts{display:flex; flex-direction:column; gap:5px; margin:8px 0;}
+.rep-perf-alert{border-left:4px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:6px 9px; font-size:11px; line-height:1.4;}
+.rep-perf-alert b{display:block; letter-spacing:.5px;}
+.rep-perf-alert.sev-critical{border-left-color:var(--critical); background:#f4dcdc; color:#8c2222;}
+.rep-perf-alert.sev-praise{border-left-color:#23c4b4; background:#e9f6f4; color:#0f6b60;}
+
+/* Tone-coloured cells (variance columns, figure values) share the same
+   band-{tone} contract; values render on the light paper so tones map to
+   paper-legible inks. */
+.rep-perf-cell.band-critical{color:var(--critical);}
+.rep-perf-cell.band-warn{color:#b07d10;}
+.rep-perf-cell.band-neutral{color:#1a2236;}
+.rep-perf-cell.band-good{color:#1e8f4e;}
+.rep-perf-cell.band-great{color:#0f8f82;}
+
 @media (max-width:760px){
   .rep-grid.two,.rep-options{grid-template-columns:1fr;}
   .rep-paper{min-height:0;}

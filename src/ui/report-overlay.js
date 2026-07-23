@@ -26,7 +26,8 @@ function _reportData(){
     quarter:q,
     metrics:_reportMetricValues(),
     issue:q.issue,
-    options:q.options
+    options:q.options,
+    snapshot:_reportSnapshot()
   };
 }
 
@@ -82,6 +83,7 @@ function openReport(){
   REPORT.page=0;
   REPORT.locked=false;
   REPORT.outcome=null;
+  if(typeof resetPerfTab==='function') resetPerfTab();
   REPORT.data=_reportData();
   root.innerHTML=_reportShell(REPORT.data);
   for(i=0;i<REPORT_PAGES.length;i++){
@@ -119,10 +121,24 @@ function openReport(){
       goToNextReportQuarter();
       return;
     }
+    var tab=e.target.closest && e.target.closest('[data-perf-tab]');
+    if(tab){
+      if(typeof setPerfTab==='function') setPerfTab(parseInt(tab.getAttribute('data-perf-tab'),10));
+      return;
+    }
     var btn=e.target.closest('.rep-option');
     if(btn) _chooseReportOption(parseInt(btn.getAttribute('data-index'),10));
   };
 }
+
+/* Left/right cycle the Performance Analysis tabs while that page is active.
+   Registered once; paging keys elsewhere are unchanged. */
+document.addEventListener('keydown',function(e){
+  if(!isReportOpen()) return;
+  if(typeof isPerformancePageActive!=='function' || !isPerformancePageActive()) return;
+  if(e.key==='ArrowLeft'){ e.preventDefault(); movePerfTab(-1); }
+  else if(e.key==='ArrowRight'){ e.preventDefault(); movePerfTab(1); }
+});
 
 function closeReport(){
   var root=_reportRoot();

@@ -787,6 +787,202 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 3: REPORTING MODEL ---------------- */
+  console.log('\nphase 3 reporting model:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      /* 7.1 I&E reconciliation across the full budget range, with and without
+         an authored line override. */
+      let maxErr = 0, maxErrOverride = 0;
+      REPORTING_OVERRIDES['qtest:opt'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
+      const overrideCtx = { quarterId: 'qtest', optionId: 'opt' };
+      for (let b = -5; b <= 2.00001; b += 0.1) {
+        const budget = Math.round(b * 10) / 10;
+        const stats = Object.assign(initialMetricStats(), { budget });
+        maxErr = Math.max(maxErr, Math.abs(deriveIncomeExpenditure(stats, null).surplus - budget));
+        maxErrOverride = Math.max(maxErrOverride,
+          Math.abs(deriveIncomeExpenditure(stats, overrideCtx).surplus - budget));
+      }
+      delete REPORTING_OVERRIDES['qtest:opt'];
+
+      /* 7.2 determinism - identical (stats, ctx) gives deeply equal output. */
+      const detStats = Object.assign(initialMetricStats(), { waiting: 80, morale: 40, safety: 45, patsat: 48, budget: -2 });
+      const detCtx = { quarterId: 'q2', optionId: 'invest' };
+      const deterministic =
+        JSON.stringify(deriveIncomeExpenditure(detStats, detCtx)) === JSON.stringify(deriveIncomeExpenditure(detStats, detCtx)) &&
+        JSON.stringify(deriveOperational(detStats, detCtx)) === JSON.stringify(deriveOperational(detStats, detCtx)) &&
+        JSON.stringify(deriveWorkforce(detStats, detCtx)) === JSON.stringify(deriveWorkforce(detStats, detCtx)) &&
+        JSON.stringify(deriveQuality(detStats, detCtx)) === JSON.stringify(deriveQuality(detStats, detCtx));
+
+      /* 7.3 no mutation - deep-frozen stats and ctx must not throw. */
+      let noThrow = true;
+      try {
+        const frozenStats = Object.freeze(Object.assign(initialMetricStats(), { waiting: 75 }));
+        const frozenCtx = Object.freeze({ quarterId: 'q2', optionId: 'invest', outcome: null, history: Object.freeze([]) });
+        deriveIncomeExpenditure(frozenStats, frozenCtx);
+        deriveOperational(frozenStats, frozenCtx);
+        deriveWorkforce(frozenStats, frozenCtx);
+        deriveQuality(frozenStats, frozenCtx);
+        getReportSection('finance', frozenStats, frozenCtx);
+        getReportSection('operations', frozenStats, frozenCtx);
+        getReportSection('workforce', frozenStats, frozenCtx);
+        getReportSection('quality', frozenStats, frozenCtx);
+      } catch (e) { noThrow = false; }
+
+      /* 7.4 direction - raising waiting (worsening) moves derived figures the
+         way the 5.3 table states. */
+      const base = initialMetricStats();
+      const hi = Object.assign({}, base, { waiting: base.waiting + 10 });
+      const opBase = deriveOperational(base, null), opHi = deriveOperational(hi, null);
+      const clinicalOf = stats => deriveIncomeExpenditure(stats, null).lines.find(l => l.id === 'clinicalIncome').actual;
+      const direction = {
+        occupancyUp: opHi.occupancy > opBase.occupancy,
+        losUp: opHi.losPct > opBase.losPct,
+        dtocUp: opHi.dtocBeds > opBase.dtocBeds,
+        cancelledUp: opHi.cancelledOps > opBase.cancelledOps,
+        incomeDown: clinicalOf(hi) < clinicalOf(base)
+      };
+
+      /* 7.5 overrides - specificity, null ctx, and an authored 0. */
+      const ovStats = initialMetricStats();
+      REPORTING_OVERRIDES['qz'] = { operational: { dtocBeds: 0 } };
+      const overrides = {
+        quarterOnly: deriveOperational(ovStats, { quarterId: 'q2', optionId: 'other' }).dtocBeds,
+        quarterOption: deriveOperational(ovStats, { quarterId: 'q2', optionId: 'invest' }).dtocBeds,
+        nullCtx: deriveOperational(ovStats, null).dtocBeds,
+        authoredZero: deriveOperational(ovStats, { quarterId: 'qz' }).dtocBeds
+      };
+      delete REPORTING_OVERRIDES['qz'];
+
+      /* 7.6 history - empty on a fresh state, one entry per committed decision
+         in round order. */
+      function outcome(quarterId, endChanges) {
+        const startStats = initialMetricStats();
+        const endStats = Object.assign({}, startStats, endChanges || {});
+        return { quarterId, optionId: 'h', optionTitle: 'H', decisionSummary: 'H', startStats, endStats, effects: {} };
+      }
+      resetGameState();
+      const emptyHistory = getStatsHistory().length;
+      applyBoardDecision(outcome('Q1', { waiting: 65 }));
+      applyBoardDecision(outcome('Q2', { waiting: 62 }));
+      const hist = getStatsHistory();
+      const history = {
+        empty: emptyHistory,
+        length: hist.length,
+        rounds: hist.map(h => h.round),
+        quarters: hist.map(h => h.quarterId)
+      };
+      resetGameState();
+
+      /* 7.8 section lookup - null (not a throw) for an unknown id. */
+      let unknownSection = 'threw';
+      try { unknownSection = getReportSection('nope', initialMetricStats(), null); } catch (e) { /* leaves 'threw' */ }
+
+      return { maxErr, maxErrOverride, deterministic, noThrow, direction, overrides, history, unknownSection };
+    });
+
+    ok(s.maxErr < 1e-9, 'reporting: I&E surplus reconciles to budget across the range');
+    ok(s.maxErrOverride < 1e-9, 'reporting: I&E still reconciles with an authored line override');
+    ok(s.deterministic, 'reporting: every derive* is deterministic for identical inputs');
+    ok(s.noThrow, 'reporting: derive* never mutate deep-frozen stats or ctx');
+    ok(s.direction.occupancyUp, 'reporting: raising waiting increases occupancy');
+    ok(s.direction.losUp, 'reporting: raising waiting increases length of stay');
+    ok(s.direction.dtocUp, 'reporting: raising waiting increases delayed transfers');
+    ok(s.direction.cancelledUp, 'reporting: raising waiting increases cancelled ops');
+    ok(s.direction.incomeDown, 'reporting: raising waiting decreases clinical income');
+    eq(s.overrides.quarterOnly, 41, 'reporting: quarter override applies');
+    eq(s.overrides.quarterOption, 38, 'reporting: quarter:option override beats quarter override');
+    eq(s.overrides.nullCtx, 35, 'reporting: null ctx applies no override');
+    eq(s.overrides.authoredZero, 0, 'reporting: an authored 0 override is honoured');
+    eq(s.history.empty, 0, 'reporting: history is empty on a fresh state');
+    eq(s.history.length, 2, 'reporting: history has one entry per committed decision');
+    eq(JSON.stringify(s.history.rounds), JSON.stringify([1, 2]), 'reporting: history is in round order');
+    eq(JSON.stringify(s.history.quarters), JSON.stringify(['Q1', 'Q2']), 'reporting: history preserves decision quarters');
+    ok(s.unknownSection === null, 'reporting: unknown section id returns null');
+    ok(page._errors.length === 0, 'reporting model: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: PERFORMANCE ANALYSIS PAGE ---------------- */
+  console.log('\nphase 3 performance page:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+
+    const order = await page.evaluate(() => ({
+      pageCount: REPORT_PAGES.length,
+      index1: REPORT_PAGES[1].id,
+      tabCount: getPerfTabCount()
+    }));
+    eq(order.pageCount, 4, 'performance: REPORT_PAGES has four entries');
+    eq(order.index1, 'performance', 'performance: index 1 is the performance page');
+    eq(order.tabCount, 4, 'performance: four analysis tabs');
+
+    await page.click('#repNext'); // results -> performance
+    const perf = await page.evaluate(() => ({
+      pageId: REPORT_PAGES[REPORT.page].id,
+      activeTab: getActivePerfTab(),
+      panels: document.querySelectorAll('.rep-perf-panel').length,
+      visiblePanels: Array.from(document.querySelectorAll('.rep-perf-panel')).filter(p => !p.hidden).length,
+      heads: document.querySelectorAll('.rep-perf-tab').length
+    }));
+    eq(perf.pageId, 'performance', 'performance: next reaches the performance page');
+    eq(perf.activeTab, 0, 'performance: opens on the first tab');
+    eq(perf.panels, 4, 'performance: all four panels are built');
+    eq(perf.visiblePanels, 1, 'performance: exactly one panel is visible');
+    eq(perf.heads, 4, 'performance: four tab headers render');
+
+    const chart = await page.evaluate(() => {
+      const cv = document.getElementById('repWaitTrend');
+      if (!cv) return null;
+      const g = cv.getContext('2d');
+      const d = g.getImageData(0, 0, cv.width, cv.height).data;
+      let seen = 0;
+      for (let i = 0; i < d.length; i += 400) if (d[i] < 200) seen++;
+      return { w: cv.width, seen };
+    });
+    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width');
+    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels');
+
+    /* clicking a tab switches without changing the page or scroll */
+    await page.click('.rep-perf-tab[data-perf-tab="2"]');
+    const clicked = await page.evaluate(() => ({
+      activeTab: getActivePerfTab(),
+      visible: (function () { const ps = document.querySelectorAll('.rep-perf-panel'); for (let i = 0; i < ps.length; i++) if (!ps[i].hidden) return i; return -1; })(),
+      page: REPORT.page
+    }));
+    eq(clicked.activeTab, 2, 'performance: clicking a tab activates it');
+    eq(clicked.visible, 2, 'performance: the clicked panel becomes the visible one');
+    eq(clicked.page, 1, 'performance: switching tabs does not change the page');
+
+    /* arrow keys cycle tabs while the page is active */
+    await page.keyboard.press('ArrowRight');
+    const right = await page.evaluate(() => getActivePerfTab());
+    eq(right, 3, 'performance: ArrowRight moves to the next tab');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    const left = await page.evaluate(() => getActivePerfTab());
+    eq(left, 1, 'performance: ArrowLeft moves back through the tabs');
+
+    /* the pager still reaches the final (options) page at index 3 */
+    await page.click('#repNext'); // performance -> issue
+    await page.click('#repNext'); // issue -> options
+    const end = await page.evaluate(() => ({
+      page: REPORT.page,
+      pageId: REPORT_PAGES[REPORT.page].id,
+      nextHidden: document.getElementById('repNext').hidden
+    }));
+    eq(end.page, 3, 'performance: paging reaches index 3');
+    eq(end.pageId, 'options', 'performance: index 3 is the options page');
+    ok(end.nextHidden, 'performance: next hides on the final page');
+
+    ok(page._errors.length === 0, 'performance page: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

@@ -1,12 +1,17 @@
 'use strict';
 /* ---------- main loop ---------- */
 var prevSimT=0;
+var _frameSeq=0;
 
 function render(){
   var simT=Math.min(clock,QLEN);
-  if(simT<prevSimT) resetMetrics();
+  var rewound=simT<prevSimT;
+  if(rewound) resetMetrics();
   prevSimT=simT;
   updateMetrics(simT);
+  /* Seed from the reconstructed landing values, never from the pre-rewind
+     position, so an automatic rewind cannot manufacture a crossing. */
+  if(rewound && typeof resetAlerts==='function') resetAlerts();
   ctx.drawImage(stat,0,0);
 
   if($('ckGrid').checked){
@@ -118,7 +123,9 @@ function render(){
   pEl.className='posture band-'+posture.tone;
   drawStatsChart();
   drawEkg(clock);
-  if(typeof updateEventFeed==='function') updateEventFeed(simT);
+  _frameSeq++;
+  if(typeof updateEventFeed==='function') updateEventFeed(simT,_frameSeq);
+  if(typeof updateAlerts==='function') updateAlerts(_frameSeq);
 }
 
 function frame(now){

@@ -8,8 +8,26 @@ var GAME = {
   decisionByQuarterId:{},
   decisions:[],
   stats:initialMetricStats(),
-  alerts:[]
+  alerts:[],
+  roles:[]                     /* selected board role ids, e.g. ['cfo','md'] */
 };
+
+/* Board roles chosen in the pregame. Stored as ids (not indices, not objects)
+   so the source of truth stays PREGAME.roles - see getBoardRoles(). */
+function setBoardRoles(ids){
+  GAME.roles=(ids||[]).slice();
+}
+
+/* Resolve the selected ids to their PREGAME role objects, skipping any id that
+   does not match a known role rather than returning an undefined entry. */
+function getBoardRoles(){
+  var out=[], i, role;
+  for(i=0;i<GAME.roles.length;i++){
+    role=(typeof getPregameRoleById==='function') ? getPregameRoleById(GAME.roles[i]) : null;
+    if(role) out.push(role);
+  }
+  return out;
+}
 
 function isQuarterDecided(quarterId){
   return !!GAME.decisionByQuarterId[quarterId];
@@ -186,6 +204,7 @@ function resetGameState(){
   GAME.decisions=[];
   GAME.stats=initialMetricStats();
   GAME.alerts=[];
+  GAME.roles=[];
   setSelectedOption(getCurrentQuarter().options[0].id);
 }
 

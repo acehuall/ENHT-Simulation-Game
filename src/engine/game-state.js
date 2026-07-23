@@ -147,6 +147,26 @@ function recordDecisionAlerts(outcome){
   }
 }
 
+/* Ordered per-quarter closing positions, oldest first. Derived only from
+   committed decisions - never from playback. Returns [] before the first
+   decision; every consumer must fall back to the current single value rather
+   than throwing on the empty case. The stats objects are references into
+   GAME.decisions and must not be mutated. */
+function getStatsHistory(){
+  var out=[], i, d;
+  for(i=0;i<GAME.decisions.length;i++){
+    d=GAME.decisions[i];
+    out.push({
+      round:      d.round,
+      quarterId:  d.quarter,
+      optionId:   d.optionId,
+      startStats: d.startStats,
+      endStats:   d.endStats
+    });
+  }
+  return out;
+}
+
 function getAlertsForDecisionQuarter(decisionQuarterId){
   var alerts=[];
   for(var i=0;i<GAME.alerts.length;i++){

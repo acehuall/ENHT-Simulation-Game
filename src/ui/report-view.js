@@ -28,6 +28,33 @@ function _reportMetricValues(){
   return metrics;
 }
 
+/* The board pack is a snapshot of one committed decision, not a live view, so
+   it reads the resolved outcome on the timeline - never METRIC_CUR, which moves
+   every frame during playback. Built once per report open (in _reportData);
+   the Performance Analysis tabs all read this object. */
+function _reportSnapshot(){
+  var timeline=getTimeline && getTimeline();
+  var outcome=timeline && timeline.outcome ? timeline.outcome : DEFAULT_OUTCOME;
+  return {
+    outcome:    outcome,
+    quarterId:  outcome.quarterId,
+    optionId:   outcome.optionId,
+    startStats: outcome.startStats,
+    endStats:   outcome.endStats,
+    history:    (typeof getStatsHistory==='function' ? getStatsHistory() : [])
+  };
+}
+
+/* The derivation context handed to every derive* / getReportSection call. */
+function _snapshotCtx(snapshot){
+  return {
+    quarterId: snapshot.quarterId,
+    optionId:  snapshot.optionId,
+    outcome:   snapshot.outcome,
+    history:   snapshot.history
+  };
+}
+
 function _reportImpactChips(effects){
   var chips=[], i, def, v;
   for(i=0;i<METRIC_DEFS.length;i++){
@@ -65,10 +92,12 @@ function _reportMetricDelta(metric){
                 the DOM. For pages that draw into a <canvas>, which
                 cannot be done from an HTML string. */
 var REPORT_PAGES=[
-  {id:'results', title:'Prior Quarter Results', build:_fillReportPage1},
-  {id:'issue',   title:'Issue At Hand',         build:_fillReportPage2,
+  {id:'results',     title:'Prior Quarter Results', build:_fillReportPage1},
+  {id:'performance', title:'Performance Analysis',  build:_fillReportPerformance,
+   afterRender:function(data){ _drawPerformanceCharts(data); }},
+  {id:'issue',       title:'Issue At Hand',         build:_fillReportPage2,
    afterRender:function(data){ _drawReportIssueChart(data.issue); }},
-  {id:'options', title:'Options For Decision',  build:_fillReportPage3}
+  {id:'options',     title:'Options For Decision',  build:_fillReportPage3}
 ];
 
 function _reportPageHead(pageId){
@@ -179,6 +208,252 @@ function _fillReportPage3(data){
       '<div class="rep-outcome" id="repOutcome" hidden></div>',
     '</div>'
   ].join('');
+}
+
+/* ---------- Performance Analysis page (phase 3) ----------
+   The four tabs read the report snapshot built in _reportData. Tab state is a
+   module-level var (not in the DOM, not on REPORT); switching tabs only toggles
+   visibility, so it never re-runs paging or resets scroll. */
+var PERF_TABS=[
+  {id:'finance',    label:'Finance',          metric:'budget'},
+  {id:'operations', label:'Operations',       metric:'waiting'},
+  {id:'workforce',  label:'Workforce',        metric:'morale'},
+  {id:'quality',    label:'Quality & Safety', metric:'safety'}
+];
+var _perfTab=0;
+
+function resetPerfTab(){ _perfTab=0; }
+function getPerfTabCount(){ return PERF_TABS.length; }
+function getActivePerfTab(){ return _perfTab; }
+
+function setPerfTab(index){
+  if(index<0 || index>=PERF_TABS.length || index===_perfTab) return;
+  _perfTab=index;
+  _syncPerfTabs();
+}
+
+/* Wraps at the ends so left/right keys cycle the tabs. */
+function movePerfTab(delta){
+  setPerfTab((_perfTab+delta+PERF_TABS.length)%PERF_TABS.length);
+}
+
+function _syncPerfTabs(){
+  var root=$('repRoot');
+  if(!root) return;
+  var heads=root.querySelectorAll('.rep-perf-tab'), panels=root.querySelectorAll('.rep-perf-panel'), i;
+  for(i=0;i<heads.length;i++) heads[i].classList.toggle('active', i===_perfTab);
+  for(i=0;i<panels.length;i++) panels[i].hidden=i!==_perfTab;
+}
+
+/* True when the pager is currently on the Performance Analysis page. */
+function isPerformancePageActive(){
+  return typeof REPORT!=='undefined' && REPORT && REPORT_PAGES[REPORT.page] &&
+         REPORT_PAGES[REPORT.page].id==='performance';
+}
+
+/* ---- presentation-time formatting (rounding happens here, never in the
+   derivation, so the I&E reconciliation is not broken by intermediate
+   rounding) ---- */
+function _perfFixed(v, dp){
+  var f=Math.pow(10,dp);
+  return (Math.round(v*f)/f).toFixed(dp);
+}
+
+/* £m with an optional leading sign (used signed for variance columns). */
+function _perfMoney(v, signed){
+  var sign = signed ? (v>0.05?'+':(v<-0.05?'&#8722;':'')) : (v<-0.005?'&#8722;':'');
+  return sign+'&pound;'+Math.abs(v).toFixed(1)+'m';
+}
+
+/* Format a non-finance row value by its unit. */
+function _perfValueText(row){
+  var u=row.unit||'', v=row.value;
+  if(u==='£m') return _perfMoney(v,false);
+  if(u.indexOf('%')>=0) return _perfFixed(v,1)+'%';
+  if(u.indexOf('/ 10')>=0) return _perfFixed(v,1)+' / 10';
+  return String(Math.round(v))+u;
+}
+
+function _perfTabHeaders(data){
+  var out=[], i, tab, band, value, tone;
+  for(i=0;i<PERF_TABS.length;i++){
+    tab=PERF_TABS[i];
+    value=data.snapshot.endStats[tab.metric];
+    band=getMetricBand(tab.metric, value);
+    tone=band?band.tone:'neutral';
+    out.push('<button type="button" class="rep-perf-tab band-'+tone+(i===_perfTab?' active':'')+
+      '" data-perf-tab="'+i+'">'+escapeHTML(tab.label)+'</button>');
+  }
+  return '<div class="rep-perf-tabs" role="tablist">'+out.join('')+'</div>';
+}
+
+function _perfFinancePanel(data){
+  var ctx=_snapshotCtx(data.snapshot);
+  var section=getReportSection('finance', data.snapshot.endStats, ctx);
+  var budget=data.snapshot.endStats.budget;
+  var band=getMetricBand('budget', budget);
+  var near=getNearestThreshold('budget', budget);
+  var rows=[], i, r, cls;
+  for(i=0;i<section.rows.length;i++){
+    r=section.rows[i];
+    if(r.id==='surplus'){
+      rows.push('<tr class="rep-perf-surplus"><td>'+escapeHTML(r.label)+'</td>'+
+        '<td></td><td class="rep-perf-cell band-'+r.tone+'">'+_perfMoney(r.value,false)+'</td>'+
+        '<td></td></tr>');
+      continue;
+    }
+    cls=r.kind==='income'?'income':'spend';
+    rows.push('<tr class="rep-perf-'+cls+'"><td>'+escapeHTML(r.label)+'</td>'+
+      '<td>'+_perfMoney(r.plan,false)+'</td>'+
+      '<td>'+_perfMoney(r.value,false)+'</td>'+
+      '<td class="rep-perf-cell band-'+r.tone+'">'+_perfMoney(r.variance,true)+'</td></tr>');
+  }
+  var bandLine='BUDGET '+(band?escapeHTML(band.label):'')+
+    (near?(' &middot; '+Math.abs(near.distance).toFixed(1)+'m to '+escapeHTML(near.threshold.title)):'');
+  return [
+    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===0?'':' hidden')+' data-perf-panel="0">',
+      '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">'+bandLine+'</div>',
+      '<table class="rep-perf-table">',
+        '<thead><tr><th>Line</th><th>Plan</th><th>Actual</th><th>Variance</th></tr></thead>',
+        '<tbody>'+rows.join('')+'</tbody>',
+      '</table>',
+      '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
+    '</div>'
+  ].join('');
+}
+
+function _perfRowList(section){
+  var out=[], i, r, cmt, lastCmt='';
+  for(i=0;i<section.rows.length;i++){
+    r=section.rows[i];
+    /* The model returns commentary per figure (keyed off its source band);
+       figures sharing a source share a line, so only show it on the first of a
+       run to keep the tab reading as narrative rather than a repeated sentence. */
+    cmt=r.commentary||'';
+    if(cmt===lastCmt) cmt=''; else lastCmt=cmt;
+    out.push('<div class="rep-perf-row"><span class="lbl">'+escapeHTML(r.label)+'</span>'+
+      '<span class="val rep-perf-cell band-'+r.tone+'">'+_perfValueText(r)+'</span>'+
+      '<span class="cmt">'+escapeHTML(cmt)+'</span></div>');
+  }
+  return '<div class="rep-perf-list">'+out.join('')+'</div>';
+}
+
+function _perfOperationsPanel(data){
+  var ctx=_snapshotCtx(data.snapshot);
+  var section=getReportSection('operations', data.snapshot.endStats, ctx);
+  return [
+    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===1?'':' hidden')+' data-perf-panel="1">',
+      '<h4>Waiting-times trend</h4>',
+      '<canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas>',
+      _perfRowList(section),
+      '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
+    '</div>'
+  ].join('');
+}
+
+function _perfWorkforcePanel(data){
+  var ctx=_snapshotCtx(data.snapshot);
+  var section=getReportSection('workforce', data.snapshot.endStats, ctx);
+  var band=getMetricBand('morale', data.snapshot.endStats.morale);
+  return [
+    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===2?'':' hidden')+' data-perf-panel="2">',
+      '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">MORALE '+
+        (band?escapeHTML(band.label):'')+'</div>',
+      _perfRowList(section),
+      '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
+    '</div>'
+  ].join('');
+}
+
+function _perfQualityPanel(data){
+  var ctx=_snapshotCtx(data.snapshot);
+  var section=getReportSection('quality', data.snapshot.endStats, ctx);
+  var band=getMetricBand('safety', data.snapshot.endStats.safety);
+  var alerts=(typeof getAlertsForDecisionQuarter==='function')
+    ? getAlertsForDecisionQuarter(data.snapshot.quarterId) : [];
+  var alertHtml='', i, a;
+  if(alerts.length){
+    var items=[];
+    for(i=0;i<alerts.length;i++){
+      a=alerts[i];
+      items.push('<div class="rep-perf-alert sev-'+a.severity+'"><b>'+escapeHTML(a.title)+'</b> '+
+        escapeHTML(a.line)+'</div>');
+    }
+    alertHtml='<div class="rep-perf-alerts">'+items.join('')+'</div>';
+  }else{
+    alertHtml='<p class="rep-perf-note">No threshold alerts were logged for this quarter.</p>';
+  }
+  return [
+    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===3?'':' hidden')+' data-perf-panel="3">',
+      '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">SAFETY '+
+        (band?escapeHTML(band.label):'')+'</div>',
+      _perfRowList(section),
+      alertHtml,
+      '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
+    '</div>'
+  ].join('');
+}
+
+function _fillReportPerformance(data){
+  return [
+    '<div class="rep-paper rep-perf">',
+      _reportPageHead('performance'),
+      _perfTabHeaders(data),
+      _perfFinancePanel(data),
+      _perfOperationsPanel(data),
+      _perfWorkforcePanel(data),
+      _perfQualityPanel(data),
+    '</div>'
+  ].join('');
+}
+
+/* Waiting-times trend from the committed history (oldest first), rendered
+   through the shared line-chart helper. The year-opening position is prepended
+   so the first committed quarter reads as movement from the year's starting
+   point (section 4: GAME.decisions[0].startStats, or initialMetricStats() when
+   empty). Falls back to the single current value when no decisions exist yet.
+   Lower is better, so the series is plotted directly on a 0..100 index. */
+function _drawPerformanceCharts(data){
+  var cv=$('repWaitTrend');
+  if(!cv) return;
+  var g=cv.getContext('2d');
+  var h=data.snapshot.history, labels=[], values=[], i;
+
+  if(h.length){
+    /* opening value of the year, then each committed quarter's close */
+    values.push(h[0].startStats.waiting);
+    labels.push('OPEN');
+    for(i=0;i<h.length;i++){
+      values.push(h[i].endStats.waiting);
+      labels.push(h[i].quarterId);
+    }
+  }else{
+    values.push(data.snapshot.endStats.waiting);
+    labels.push('NOW');
+  }
+
+  var W=480, H=180;
+  var ss=Math.max(2, Math.ceil((window.devicePixelRatio||1)*2));
+  if(cv.width!==W*ss){ cv.width=W*ss; cv.height=H*ss; }
+  g.setTransform(ss,0,0,ss,0,0);
+
+  var n=values.length;
+  var xFrac=function(idx){ return n<=1 ? 0.5 : idx/(n-1); };
+  var points=[], xLabels=[];
+  for(i=0;i<n;i++){
+    points.push({xFrac:xFrac(i), value:values[i]});
+    xLabels.push({xFrac:xFrac(i), text:labels[i], align:'center'});
+  }
+
+  renderLineChart(g, {
+    W:W, H:H, pad:{l:32, r:12, t:14, b:26}, maxV:100,
+    yTicks:[0,25,50,75,100], font:'bold 9px "Courier New", monospace',
+    colors:{bg:'#fbfcfe', grid:'#d4dae7', yLabel:'#42557a', xLabel:'#42557a'},
+    yLabelDx:5, xLabelDy:5,
+    series:[{color:'#23c4b4', width:2, points:points, marker:'all', markerSize:4}],
+    xLabels:xLabels,
+    frame:'axis', frameColor:'#141b30'
+  });
 }
 
 function _drawReportIssueChart(issue){

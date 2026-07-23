@@ -787,6 +787,294 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 3: REPORTING MODEL ---------------- */
+  console.log('\nphase 3 reporting model:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      /* recursively deep-freeze so a mutation of any nested stats object throws */
+      function deepFreeze(obj) {
+        if (obj && typeof obj === 'object' && !Object.isFrozen(obj)) {
+          Object.freeze(obj);
+          Object.keys(obj).forEach(k => deepFreeze(obj[k]));
+        }
+        return obj;
+      }
+
+      /* 7.1 I&E reconciliation across the full budget range, with and without
+         an authored line override (keyed on a real quarter:option id). */
+      let maxErr = 0, maxErrOverride = 0;
+      REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
+      const overrideCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
+      for (let b = -5; b <= 2.00001; b += 0.1) {
+        const budget = Math.round(b * 10) / 10;
+        const stats = Object.assign(initialMetricStats(), { budget });
+        maxErr = Math.max(maxErr, Math.abs(deriveIncomeExpenditure(stats, null).surplus - budget));
+        maxErrOverride = Math.max(maxErrOverride,
+          Math.abs(deriveIncomeExpenditure(stats, overrideCtx).surplus - budget));
+      }
+      delete REPORTING_OVERRIDES['Q1:hire_temporary_staff'];
+
+      /* 7.2 determinism - identical (stats, ctx) gives deeply equal output. */
+      const detStats = Object.assign(initialMetricStats(), { waiting: 80, morale: 40, safety: 45, patsat: 48, budget: -2 });
+      const detCtx = { quarterId: 'q2', optionId: 'invest' };
+      const deterministic =
+        JSON.stringify(deriveIncomeExpenditure(detStats, detCtx)) === JSON.stringify(deriveIncomeExpenditure(detStats, detCtx)) &&
+        JSON.stringify(deriveOperational(detStats, detCtx)) === JSON.stringify(deriveOperational(detStats, detCtx)) &&
+        JSON.stringify(deriveWorkforce(detStats, detCtx)) === JSON.stringify(deriveWorkforce(detStats, detCtx)) &&
+        JSON.stringify(deriveQuality(detStats, detCtx)) === JSON.stringify(deriveQuality(detStats, detCtx));
+
+      /* 7.3 no mutation - recursively deep-frozen stats and ctx must not throw. */
+      let noThrow = true;
+      try {
+        const frozenStats = deepFreeze(Object.assign(initialMetricStats(), { waiting: 75 }));
+        const frozenCtx = deepFreeze({
+          quarterId: 'Q2', optionId: 'discharge_partnership',
+          outcome: { startStats: initialMetricStats(), endStats: initialMetricStats() },
+          history: [{ startStats: initialMetricStats(), endStats: initialMetricStats() }]
+        });
+        deriveIncomeExpenditure(frozenStats, frozenCtx);
+        deriveOperational(frozenStats, frozenCtx);
+        deriveWorkforce(frozenStats, frozenCtx);
+        deriveQuality(frozenStats, frozenCtx);
+        getReportSection('finance', frozenStats, frozenCtx);
+        getReportSection('operations', frozenStats, frozenCtx);
+        getReportSection('workforce', frozenStats, frozenCtx);
+        getReportSection('quality', frozenStats, frozenCtx);
+      } catch (e) { noThrow = false; }
+
+      /* 7.4 direction - move each source metric in its WORSENING direction and
+         check every derived figure moves the way the 5.3 table states. Budget
+         and every index worsen downward; waiting worsens upward. */
+      const base = initialMetricStats();
+      const withD = changes => Object.assign({}, base, changes);
+      const lineOf = (stats, id) => deriveIncomeExpenditure(stats, null).lines.find(l => l.id === id).actual;
+
+      const budgetLow = withD({ budget: -4 });
+      const moraleLow = withD({ morale: base.morale - 15 });
+      const waitingHi = withD({ waiting: base.waiting + 15 });
+      const safetyLow = withD({ safety: base.safety - 15 });
+      const safetyVeryLow = withD({ safety: 20 });
+      const patsatLow = withD({ patsat: base.patsat - 15 });
+      const repLow = withD({ rep: base.rep - 15 });
+
+      const opBase = deriveOperational(base, null);
+      const opWait = deriveOperational(waitingHi, null);
+      const opSafety = deriveOperational(safetyLow, null);
+      const wfBase = deriveWorkforce(base, null);
+      const wfMorale = deriveWorkforce(moraleLow, null);
+      const wfRep = deriveWorkforce(repLow, null);
+      const qBase = deriveQuality(base, null);
+      const qSafety = deriveQuality(safetyLow, null);
+      const qSafetyVery = deriveQuality(safetyVeryLow, null);
+      const qPatsat = deriveQuality(patsatLow, null);
+
+      const direction = {
+        /* finance */
+        payUpOnBudget: lineOf(budgetLow, 'paySpend') > lineOf(base, 'paySpend'),
+        nonPayUpOnBudget: lineOf(budgetLow, 'nonPaySpend') > lineOf(base, 'nonPaySpend'),
+        payUpOnMorale: lineOf(moraleLow, 'paySpend') > lineOf(base, 'paySpend'),
+        agencyUpOnMorale: lineOf(moraleLow, 'agencySpend') > lineOf(base, 'agencySpend'),
+        incomeDownOnWaiting: lineOf(waitingHi, 'clinicalIncome') < lineOf(base, 'clinicalIncome'),
+        /* operations */
+        occupancyUp: opWait.occupancy > opBase.occupancy,
+        losUp: opWait.losPct > opBase.losPct,
+        dtocUp: opWait.dtocBeds > opBase.dtocBeds,
+        cancelledUp: opWait.cancelledOps > opBase.cancelledOps,
+        handoverUpOnWaiting: opWait.ambulanceHandover > opBase.ambulanceHandover,
+        handoverUpOnSafety: opSafety.ambulanceHandover > opBase.ambulanceHandover,
+        /* workforce */
+        vacancyUp: wfMorale.vacancyRate > wfBase.vacancyRate,
+        turnoverUp: wfMorale.turnover > wfBase.turnover,
+        sicknessUp: wfMorale.sickness > wfBase.sickness,
+        bankAgencyUp: wfMorale.bankAgencySpend > wfBase.bankAgencySpend,
+        surveyDownOnMorale: wfMorale.surveyScore < wfBase.surveyScore,
+        surveyDownOnRep: wfRep.surveyScore < wfBase.surveyScore,
+        /* quality */
+        incidentsUp: qSafety.incidents > qBase.incidents,
+        neverEventsUp: qSafetyVery.neverEvents > qBase.neverEvents,
+        harmFreeDown: qSafety.harmFreePct < qBase.harmFreePct,
+        complaintsUp: qPatsat.complaints > qBase.complaints,
+        fftDown: qPatsat.fftScore < qBase.fftScore
+      };
+
+      /* 7.5 overrides - specificity, null ctx, and an authored 0, using real
+         game ids. Q2 authors dtocBeds=41; Q2:discharge_partnership authors 38. */
+      const ovStats = initialMetricStats();
+      REPORTING_OVERRIDES['Q3'] = { operational: { dtocBeds: 0 } };
+      const overrides = {
+        quarterOnly: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'open_escalation_ward' }).dtocBeds,
+        quarterOption: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'discharge_partnership' }).dtocBeds,
+        nullCtx: deriveOperational(ovStats, null).dtocBeds,
+        authoredZero: deriveOperational(ovStats, { quarterId: 'Q3' }).dtocBeds
+      };
+      delete REPORTING_OVERRIDES['Q3'];
+
+      /* 7.6 history - empty on a fresh state, one entry per committed decision
+         in round order. */
+      function outcome(quarterId, endChanges) {
+        const startStats = initialMetricStats();
+        const endStats = Object.assign({}, startStats, endChanges || {});
+        return { quarterId, optionId: 'h', optionTitle: 'H', decisionSummary: 'H', startStats, endStats, effects: {} };
+      }
+      resetGameState();
+      const emptyHistory = getStatsHistory().length;
+      applyBoardDecision(outcome('Q1', { waiting: 65 }));
+      applyBoardDecision(outcome('Q2', { waiting: 62 }));
+      const hist = getStatsHistory();
+      const history = {
+        empty: emptyHistory,
+        length: hist.length,
+        rounds: hist.map(h => h.round),
+        quarters: hist.map(h => h.quarterId)
+      };
+      resetGameState();
+
+      /* 7.8 section lookup - null (not a throw) for an unknown id. */
+      let unknownSection = 'threw';
+      try { unknownSection = getReportSection('nope', initialMetricStats(), null); } catch (e) { /* leaves 'threw' */ }
+
+      return { maxErr, maxErrOverride, deterministic, noThrow, direction, overrides, history, unknownSection };
+    });
+
+    ok(s.maxErr < 1e-9, 'reporting: I&E surplus reconciles to budget across the range');
+    ok(s.maxErrOverride < 1e-9, 'reporting: I&E still reconciles with an authored line override');
+    ok(s.deterministic, 'reporting: every derive* is deterministic for identical inputs');
+    ok(s.noThrow, 'reporting: derive* never mutate recursively deep-frozen stats or ctx');
+    ok(s.direction.payUpOnBudget, 'reporting: lowering budget increases pay spend');
+    ok(s.direction.nonPayUpOnBudget, 'reporting: lowering budget increases non-pay spend');
+    ok(s.direction.payUpOnMorale, 'reporting: lowering morale increases pay spend');
+    ok(s.direction.agencyUpOnMorale, 'reporting: lowering morale increases bank & agency spend');
+    ok(s.direction.incomeDownOnWaiting, 'reporting: raising waiting decreases clinical income');
+    ok(s.direction.occupancyUp, 'reporting: raising waiting increases occupancy');
+    ok(s.direction.losUp, 'reporting: raising waiting increases length of stay');
+    ok(s.direction.dtocUp, 'reporting: raising waiting increases delayed transfers');
+    ok(s.direction.cancelledUp, 'reporting: raising waiting increases cancelled ops');
+    ok(s.direction.handoverUpOnWaiting, 'reporting: raising waiting increases ambulance handovers');
+    ok(s.direction.handoverUpOnSafety, 'reporting: lowering safety increases ambulance handovers');
+    ok(s.direction.vacancyUp, 'reporting: lowering morale increases vacancy rate');
+    ok(s.direction.turnoverUp, 'reporting: lowering morale increases turnover');
+    ok(s.direction.sicknessUp, 'reporting: lowering morale increases sickness absence');
+    ok(s.direction.bankAgencyUp, 'reporting: lowering morale increases bank & agency spend');
+    ok(s.direction.surveyDownOnMorale, 'reporting: lowering morale decreases staff survey score');
+    ok(s.direction.surveyDownOnRep, 'reporting: lowering reputation decreases staff survey score');
+    ok(s.direction.incidentsUp, 'reporting: lowering safety increases moderate-harm incidents');
+    ok(s.direction.neverEventsUp, 'reporting: lowering safety increases never events');
+    ok(s.direction.harmFreeDown, 'reporting: lowering safety decreases harm-free care');
+    ok(s.direction.complaintsUp, 'reporting: lowering patient satisfaction increases complaints');
+    ok(s.direction.fftDown, 'reporting: lowering patient satisfaction decreases FFT recommend');
+    eq(s.overrides.quarterOnly, 41, 'reporting: quarter override applies');
+    eq(s.overrides.quarterOption, 38, 'reporting: quarter:option override beats quarter override');
+    eq(s.overrides.nullCtx, 35, 'reporting: null ctx applies no override');
+    eq(s.overrides.authoredZero, 0, 'reporting: an authored 0 override is honoured');
+    eq(s.history.empty, 0, 'reporting: history is empty on a fresh state');
+    eq(s.history.length, 2, 'reporting: history has one entry per committed decision');
+    eq(JSON.stringify(s.history.rounds), JSON.stringify([1, 2]), 'reporting: history is in round order');
+    eq(JSON.stringify(s.history.quarters), JSON.stringify(['Q1', 'Q2']), 'reporting: history preserves decision quarters');
+    ok(s.unknownSection === null, 'reporting: unknown section id returns null');
+    ok(page._errors.length === 0, 'reporting model: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: PERFORMANCE ANALYSIS PAGE ---------------- */
+  console.log('\nphase 3 performance page:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+
+    const order = await page.evaluate(() => ({
+      pageCount: REPORT_PAGES.length,
+      index1: REPORT_PAGES[1].id,
+      tabCount: getPerfTabCount()
+    }));
+    eq(order.pageCount, 4, 'performance: REPORT_PAGES has four entries');
+    eq(order.index1, 'performance', 'performance: index 1 is the performance page');
+    eq(order.tabCount, 4, 'performance: four analysis tabs');
+
+    await page.click('#repNext'); // results -> performance
+    const perf = await page.evaluate(() => ({
+      pageId: REPORT_PAGES[REPORT.page].id,
+      activeTab: getActivePerfTab(),
+      panels: document.querySelectorAll('.rep-perf-panel').length,
+      visiblePanels: Array.from(document.querySelectorAll('.rep-perf-panel')).filter(p => !p.hidden).length,
+      heads: document.querySelectorAll('.rep-perf-tab').length
+    }));
+    eq(perf.pageId, 'performance', 'performance: next reaches the performance page');
+    eq(perf.activeTab, 0, 'performance: opens on the first tab');
+    eq(perf.panels, 4, 'performance: all four panels are built');
+    eq(perf.visiblePanels, 1, 'performance: exactly one panel is visible');
+    eq(perf.heads, 4, 'performance: four tab headers render');
+
+    const chart = await page.evaluate(() => {
+      const cv = document.getElementById('repWaitTrend');
+      if (!cv) return null;
+      const g = cv.getContext('2d');
+      const d = g.getImageData(0, 0, cv.width, cv.height).data;
+      let seen = 0;
+      for (let i = 0; i < d.length; i += 400) if (d[i] < 200) seen++;
+      return { w: cv.width, seen };
+    });
+    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width');
+    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels');
+
+    /* switching tabs preserves the report body's scroll position. Shrink the
+       viewport so the panels overflow, scroll to a value both the source and
+       destination tab can hold (so nothing is clamped), then assert the switch
+       leaves scrollTop untouched. */
+    await page.setViewportSize({ width: 1200, height: 360 });
+    const scroll = await page.evaluate(() => {
+      const pages = document.querySelector('.rep-pages');
+      setPerfTab(1); const srcMax = pages.scrollHeight - pages.clientHeight; // operations
+      setPerfTab(3); const dstMax = pages.scrollHeight - pages.clientHeight; // quality
+      const target = Math.min(srcMax, dstMax) - 4;
+      setPerfTab(1);
+      pages.scrollTop = target;
+      const set = pages.scrollTop;
+      setPerfTab(3);
+      return { set, afterSwitch: pages.scrollTop, target };
+    });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    ok(scroll.set > 0, 'performance: report body scrolls with the shrunk viewport');
+    eq(scroll.afterSwitch, scroll.set, 'performance: switching tabs preserves scroll position');
+
+    /* clicking a tab switches without changing the page or scroll */
+    await page.click('.rep-perf-tab[data-perf-tab="2"]');
+    const clicked = await page.evaluate(() => ({
+      activeTab: getActivePerfTab(),
+      visible: (function () { const ps = document.querySelectorAll('.rep-perf-panel'); for (let i = 0; i < ps.length; i++) if (!ps[i].hidden) return i; return -1; })(),
+      page: REPORT.page
+    }));
+    eq(clicked.activeTab, 2, 'performance: clicking a tab activates it');
+    eq(clicked.visible, 2, 'performance: the clicked panel becomes the visible one');
+    eq(clicked.page, 1, 'performance: switching tabs does not change the page');
+
+    /* arrow keys cycle tabs while the page is active */
+    await page.keyboard.press('ArrowRight');
+    const right = await page.evaluate(() => getActivePerfTab());
+    eq(right, 3, 'performance: ArrowRight moves to the next tab');
+    await page.keyboard.press('ArrowLeft');
+    await page.keyboard.press('ArrowLeft');
+    const left = await page.evaluate(() => getActivePerfTab());
+    eq(left, 1, 'performance: ArrowLeft moves back through the tabs');
+
+    /* the pager still reaches the final (options) page at index 3 */
+    await page.click('#repNext'); // performance -> issue
+    await page.click('#repNext'); // issue -> options
+    const end = await page.evaluate(() => ({
+      page: REPORT.page,
+      pageId: REPORT_PAGES[REPORT.page].id,
+      nextHidden: document.getElementById('repNext').hidden
+    }));
+    eq(end.page, 3, 'performance: paging reaches index 3');
+    eq(end.pageId, 'options', 'performance: index 3 is the options page');
+    ok(end.nextHidden, 'performance: next hides on the final page');
+
+    ok(page._errors.length === 0, 'performance page: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

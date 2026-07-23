@@ -33,68 +33,45 @@ function _chartMonth(index){ return 'M'+index; }
 
 function drawStatsChart(){
   var W=statsChart.width, H=statsChart.height;      /* 220 x 120 */
-  var left=22, right=W-6, top=10, bottom=H-18;
-  var plotW=right-left, plotH=bottom-top;
-
-  /* background */
-  scc.fillStyle='#0a0c13'; scc.fillRect(0,0,W,H);
-
-  /* horizontal grid + y markers (0 / 50 / 100) */
-  scc.font='8px "Courier New", monospace';
-  scc.textAlign='right'; scc.textBaseline='middle';
-  var yv=[0,50,100];
-  for(var g=0;g<yv.length;g++){
-    var gy=Math.round(top+(1-yv[g]/100)*plotH);
-    scc.fillStyle='rgba(139,148,171,0.15)'; scc.fillRect(left,gy,plotW,1);
-    scc.fillStyle='#8b94ab'; scc.fillText(String(yv[g]),left-3,gy);
-  }
-
-  /* month markers */
-  scc.font='8px "Courier New", monospace';
-  scc.textAlign='center'; scc.textBaseline='top';
-  for(var mo=1;mo<=SIM_MONTHS;mo++){
-    var mx=Math.round(left+(mo/SIM_MONTHS)*plotW);
-    scc.fillStyle='rgba(195,202,222,0.22)';
-    scc.fillRect(mx,top,1,plotH);
-    scc.fillStyle='#8b94ab';
-    scc.textAlign=(mo===SIM_MONTHS)?'right':'center';
-    scc.fillText(_chartMonth(mo),mx,bottom+3);
-  }
-
-  /* subtle event markers from the compiled timeline */
-  if(typeof getTimelineStatEvents==='function'){
-    var events=getTimelineStatEvents();
-    scc.fillStyle='rgba(233,180,76,0.20)';
-    for(var e=0;e<events.length;e++){
-      var ex=Math.round(left+(events[e].t/QLEN)*plotW);
-      scc.fillRect(ex,top,1,plotH);
-    }
-  }
-
-  /* one line per series, straight from the stored history */
   var hist=getMetricHistory();
-  for(var s=0;s<CHART_SERIES.length;s++){
-    var key=CHART_SERIES[s].key;
-    scc.strokeStyle=CHART_COLORS[key]; scc.lineWidth=1;
-    scc.beginPath();
-    for(var i=0;i<hist.length;i++){
-      var px=left+(hist[i].t/QLEN)*plotW;
-      var py=top+(1-hist[i][key]/100)*plotH;
-      if(i===0) scc.moveTo(px,py); else scc.lineTo(px,py);
+
+  /* one line per board series, straight from the stored history */
+  var series=[], s, key, points, i;
+  for(s=0;s<CHART_SERIES.length;s++){
+    key=CHART_SERIES[s].key;
+    points=[];
+    for(i=0;i<hist.length;i++) points.push({xFrac:hist[i].t/QLEN, value:hist[i][key]});
+    series.push({color:CHART_COLORS[key], width:1, points:points, marker:'end', markerSize:3});
+  }
+
+  /* month labels + subtle vertical month / timeline-event markers, drawn under
+     the series in the shared renderer's decorate pass */
+  var xLabels=[];
+  for(var mo=1;mo<=SIM_MONTHS;mo++){
+    xLabels.push({xFrac:mo/SIM_MONTHS, text:_chartMonth(mo), align:(mo===SIM_MONTHS)?'right':'center'});
+  }
+  function decorate(g, rect){
+    var m, ex, events;
+    g.fillStyle='rgba(195,202,222,0.22)';
+    for(m=1;m<=SIM_MONTHS;m++){
+      g.fillRect(Math.round(rect.l+(m/SIM_MONTHS)*rect.plotW), rect.t, 1, rect.plotH);
     }
-    scc.stroke();
-    /* last-point marker */
-    if(hist.length){
-      var lp=hist[hist.length-1];
-      var lx=Math.round(left+(lp.t/QLEN)*plotW);
-      var ly=Math.round(top+(1-lp[key]/100)*plotH);
-      scc.fillStyle=CHART_COLORS[key]; scc.fillRect(lx-1,ly-1,3,3);
+    if(typeof getTimelineStatEvents==='function'){
+      events=getTimelineStatEvents();
+      g.fillStyle='rgba(233,180,76,0.20)';
+      for(var e=0;e<events.length;e++){
+        ex=Math.round(rect.l+(events[e].t/QLEN)*rect.plotW);
+        g.fillRect(ex, rect.t, 1, rect.plotH);
+      }
     }
   }
 
-  /* plot border */
-  scc.fillStyle='#242b40';
-  scc.fillRect(left,top,plotW,1); scc.fillRect(left,bottom,plotW,1);
-  scc.fillRect(left,top,1,plotH); scc.fillRect(right,top,1,plotH);
-
+  renderLineChart(scc, {
+    W:W, H:H, pad:{l:22, r:6, t:10, b:18}, maxV:100,
+    yTicks:[0,50,100], font:'8px "Courier New", monospace',
+    colors:{bg:'#0a0c13', grid:'rgba(139,148,171,0.15)', yLabel:'#8b94ab', xLabel:'#8b94ab'},
+    yLabelDx:3, xLabelDy:3,
+    series:series, xLabels:xLabels, decorate:decorate,
+    frame:'border', frameColor:'#242b40'
+  });
 }

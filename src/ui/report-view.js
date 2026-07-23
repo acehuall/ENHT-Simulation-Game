@@ -69,6 +69,69 @@ function _reportImpactChips(effects){
   return chips;
 }
 
+/* Live status -> band tone class (shared phase-1 contract, paper-legible inks
+   below). Mirrors the brief panel's mapping. */
+function _pipTone(status){
+  switch(status){
+    case 'BREACHED': return 'critical';
+    case 'AT RISK':  return 'warn';
+    case 'MET':      return 'good';
+    default:         return 'neutral';
+  }
+}
+function _pipStatusLabel(status){
+  return status.toLowerCase();
+}
+function _pipDelta(def, v){
+  if(def.money) return (v>0?'+':(v<0?'−':''))+Math.abs(v).toFixed(1);
+  return (v>0?'+':(v<0?'−':''))+String(Math.abs(v));
+}
+
+/* Per-role impact pips for one option, e.g. "CFO: budget -1.8 (at risk)".
+   Rendered for the SELECTED board roles only, one pip per (role, metric) the
+   option actually moves, showing the projected objective status if the board
+   took this option now. Renders nothing when no roles are selected, so the
+   existing layout is never disturbed. */
+function _reportRolePips(effects){
+  if(typeof getBoardRoles!=='function') return '';
+  var roles=getBoardRoles();
+  if(!roles.length || !effects) return '';
+  var history=(typeof getStatsHistory==='function') ? getStatsHistory() : [];
+  var current=(typeof GAME!=='undefined') ? GAME.stats : null;
+  var startStats=history.length ? history[0].startStats : current;
+  var projected=(typeof applyMetricEffects==='function' && current)
+    ? applyMetricEffects(current, effects) : current;
+  /* worst status ranks first so a (role,metric) pip reflects its riskiest objective */
+  var rank={BREACHED:0, 'AT RISK':1, 'ON TRACK':2, MET:3};
+  var pips=[], i, j, role, obj, eff, def, seen, key, status, worst;
+  for(i=0;i<roles.length;i++){
+    role=roles[i];
+    seen={};
+    for(j=0;j<role.objectives.length;j++){
+      obj=role.objectives[j];
+      key=obj.key;
+      eff=effects[key];
+      if(!eff) continue;                 /* only metrics this option moves */
+      status=(typeof getObjectiveProjectedStatus==='function')
+        ? getObjectiveProjectedStatus(obj, history, startStats, projected) : 'ON TRACK';
+      if(seen.hasOwnProperty(key)){
+        if(rank[status]<rank[seen[key]]) seen[key]=status;  /* keep the worse */
+      }else{
+        seen[key]=status;
+      }
+    }
+    for(key in seen){
+      if(!seen.hasOwnProperty(key)) continue;
+      def=getMetricDef(key);
+      worst=seen[key];
+      pips.push('<i class="rep-pip band-'+_pipTone(worst)+'">'+
+        escapeHTML(role.id.toUpperCase()+': '+def.label.toLowerCase()+' '+
+          _pipDelta(def, effects[key])+' ('+_pipStatusLabel(worst)+')')+'</i>');
+    }
+  }
+  return pips.length ? '<div class="rep-pips">'+pips.join('')+'</div>' : '';
+}
+
 function _metricDisplay(metric, value){
   return metric.money ? fmtMoney(value).replace('&pound;','GBP').replace('&#8722;','-') : String(Math.round(value));
 }
@@ -199,6 +262,7 @@ function _fillReportPage3(data){
         o.cons.map(function(c){ return '<span class="bad">- '+escapeHTML(c)+'</span>'; }).join('')+
       '</div>'+
       '<div class="rep-chips">'+chips.map(function(ch){ return '<i class="'+ch.tone+'">'+escapeHTML(ch.text)+'</i>'; }).join('')+'</div>'+
+      _reportRolePips(o.effects)+
     '</button>');
   }
   return [

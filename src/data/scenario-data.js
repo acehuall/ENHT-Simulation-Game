@@ -16,13 +16,17 @@
       `line` is the plain-language explanation shown on hover / in the pack.
    5. Thresholds are separate from bands: bands are ambient status, thresholds
       are hard lines that fire an alert exactly once on crossing (phase 2).
+   6. `owner` is the display name shown in the board pack; `ownerRole` is the
+      stable role slug (matches PREGAME.roles[n].id) that owns the metric.
+      Phase 4 objectives resolve owner<->role by `ownerRole`, NEVER by parsing
+      the display name - one convention, stated here so the two never diverge.
 -------------------------------------------------------------------------- */
 var METRIC_DEFS = [
   {key:'budget',  label:'BUDGET',  full:'Budget',               money:true,  goodUp:true,  start:0,  min:-5, max:2,
    unit:'£m',
    meaning:'In-year financial position against the annual plan, after agency, capital charges and CIP delivery.',
    proxy:'A 0.1 movement is roughly £100k over the year, or about two months of one agency ward shift pattern.',
-   owner:'CHIEF FINANCE OFFICER',
+   owner:'CHIEF FINANCE OFFICER', ownerRole:'cfo',
    bands:[
      {id:'critical', to:-3.0, tone:'critical', label:'CRITICAL',
       line:'Financial control has failed. Formal intervention and a year-end rating cap are likely.'},
@@ -51,7 +55,7 @@ var METRIC_DEFS = [
    unit:'index',
    meaning:'Composite of referral-to-treatment position, 4-hour performance and diagnostic waits. Lower is better.',
    proxy:'A 1-point rise is roughly 200 more patients waiting beyond 18 weeks.',
-   owner:'CHIEF OPERATING OFFICER',
+   owner:'CHIEF OPERATING OFFICER', ownerRole:'coo',
    bands:[
      {id:'exemplar', to:48,  tone:'great',    label:'EXEMPLAR',
       line:'Access performance in the top decile. Referral to treatment is holding.'},
@@ -80,7 +84,7 @@ var METRIC_DEFS = [
    unit:'index',
    meaning:'Composite of Friends and Family scores, complaints volume and national inpatient survey results.',
    proxy:'A 1-point fall is roughly a 2% rise in formal complaints received.',
-   owner:'CHIEF NURSE',
+   owner:'CHIEF NURSE', ownerRole:'cno',
    bands:[
      {id:'critical', to:35,  tone:'critical', label:'CRITICAL',
       line:'Sustained poor experience is driving external scrutiny from Healthwatch and CQC.'},
@@ -109,7 +113,7 @@ var METRIC_DEFS = [
    unit:'index',
    meaning:'Composite of staff survey engagement, sickness absence, turnover and vacancy rate.',
    proxy:'A 1-point fall is roughly a 0.3% rise in turnover, which is about 20 leavers a year.',
-   owner:'CHIEF EXECUTIVE',
+   owner:'CHIEF EXECUTIVE', ownerRole:'ceo',
    bands:[
      {id:'critical', to:32,  tone:'critical', label:'CRITICAL',
       line:'Retention is failing and workforce capacity can no longer sustain safe services.'},
@@ -138,7 +142,7 @@ var METRIC_DEFS = [
    unit:'index',
    meaning:'Composite of incident rate, never events, harm-free care and the CQC safety domain.',
    proxy:'A 1-point fall is roughly one extra moderate-harm incident per month.',
-   owner:'MEDICAL DIRECTOR',
+   owner:'MEDICAL DIRECTOR', ownerRole:'md',
    bands:[
      {id:'critical', to:35,  tone:'critical', label:'CRITICAL',
       line:'Regulatory intervention likely. Serious incidents are not being contained.'},
@@ -167,7 +171,7 @@ var METRIC_DEFS = [
    unit:'index',
    meaning:'Composite of local media sentiment, regulator confidence and system partner standing.',
    proxy:'A 1-point fall is roughly one additional critical local news cycle per quarter.',
-   owner:'DIRECTOR OF GOVERNANCE',
+   owner:'DIRECTOR OF GOVERNANCE', ownerRole:'gov',
    bands:[
      {id:'critical', to:35,  tone:'critical', label:'CRITICAL',
       line:'Public confidence has collapsed and system partners are distancing themselves.'},

@@ -83,8 +83,21 @@
 .pg-button{font-family:var(--pg-display); font-size:clamp(10px,1.3vw,13px); letter-spacing:.12em; color:var(--ink); background:#102d31; border:2px solid var(--teal); padding:12px 20px; cursor:pointer; box-shadow:4px 4px 0 #061a1d;}
 .pg-button:hover{background:var(--teal); color:#061a1d;}
 .pg-button--ghost{border-color:var(--line); background:var(--panel2); box-shadow:4px 4px 0 #05070c;}
+.pg-button--disabled,.pg-button[disabled]{opacity:.4; cursor:not-allowed; box-shadow:none;}
+.pg-button--disabled:hover,.pg-button[disabled]:hover{background:#102d31; color:var(--ink);}
 .pg-hint{margin-left:auto; font-family:var(--pg-body); font-size:clamp(15px,1.6vw,19px); letter-spacing:.12em; color:var(--dim); text-align:right;}
 .pg-button:focus,.pg-card:focus{outline:3px solid var(--amber); outline-offset:2px;}
+
+/* screen 2b — your brief (confirm) over the boardroom */
+.pg-veil--brief{justify-content:flex-start; background:linear-gradient(180deg,rgba(7,10,17,.86),rgba(7,10,17,.78) 40%,rgba(7,10,17,.9));}
+.pg-brief-grid{display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:12px; width:100%; text-align:left;}
+.pg-brief-card{background:rgba(13,16,26,.92); border:2px solid var(--line); border-left:6px solid var(--teal); box-shadow:4px 4px 0 #05070c; padding:12px 14px;}
+.pg-brief-name{font-family:var(--pg-display); font-size:clamp(9px,1vw,11px); line-height:1.5; color:var(--amber); margin-bottom:8px;}
+.pg-brief-text{font-family:var(--pg-body); font-size:17px; line-height:1.3; color:#c3cade; margin-bottom:10px;}
+.pg-brief-objs{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:7px;}
+.pg-brief-obj{display:flex; flex-direction:column; gap:2px; border-top:1px solid var(--line); padding-top:6px;}
+.pg-brief-target{font-family:var(--pg-display); font-size:9px; letter-spacing:.08em; color:var(--teal);}
+.pg-brief-label{font-family:var(--pg-body); font-size:16px; line-height:1.25; color:var(--ink);}
 
 @keyframes pg-blink{50%{opacity:.15;}}
 @keyframes pg-sweep{to{top:118%;}}

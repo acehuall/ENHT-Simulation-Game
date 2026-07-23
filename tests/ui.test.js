@@ -1075,6 +1075,333 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 4: OBJECTIVE AUTHORING + ENGINE ---------------- */
+  console.log('\nphase 4 objectives:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      const metricKeys = {};
+      METRIC_DEFS.forEach(d => { metricKeys[d.key] = true; });
+
+      /* 1 + 2: authoring rules over the real PREGAME data. */
+      const ids = {};
+      let idsUnique = true, keysValid = true, threePerRole = true, weightsSumSix = true;
+      let hasCrossMetric = true, ownerRoleValid = true;
+      PREGAME.roles.forEach(role => {
+        if (!role.objectives || role.objectives.length !== 3) threePerRole = false;
+        let sum = 0, offPrimary = 0;
+        (role.objectives || []).forEach(o => {
+          if (ids[o.id]) idsUnique = false;
+          ids[o.id] = true;
+          if (!metricKeys[o.key]) keysValid = false;
+          if (o.key !== role.primaryKey) offPrimary++;
+          sum += o.weight;
+        });
+        if (sum !== 6) weightsSumSix = false;
+        if (offPrimary < 1) hasCrossMetric = false;
+      });
+      /* ownerRole convention: every metric resolves to a real role id, and each
+         role's primaryKey is the metric it owns. */
+      const roleIds = {};
+      PREGAME.roles.forEach(r => { roleIds[r.id] = r; });
+      METRIC_DEFS.forEach(d => {
+        if (!d.ownerRole || !roleIds[d.ownerRole]) ownerRoleValid = false;
+        else if (roleIds[d.ownerRole].primaryKey !== d.key) ownerRoleValid = false;
+      });
+
+      /* Helpers building explicit history arrays (no GAME mutation). */
+      const st = ch => Object.assign(initialMetricStats(), ch || {});
+      const hist = (...ends) => ends.map((e, i) => ({
+        round: i + 1, quarterId: 'Q' + (i + 1), optionId: 'o',
+        startStats: initialMetricStats(), endStats: st(e)
+      }));
+
+      /* 3: floor latch - breached Q2, recovered Q4, still fail + BREACHED. */
+      const latchObj = { id: 'x', key: 'safety', type: 'floor', target: 64, weight: 3 };
+      const latchHist = hist({ safety: 66 }, { safety: 60 }, { safety: 63 }, { safety: 70 });
+      const latchEval = evaluateObjective(latchObj, latchHist, latchHist[0].startStats, latchHist[3].endStats);
+      const latchLive = getObjectiveLiveStatus(latchObj, latchHist, latchHist[0].startStats, st({ safety: 70 }));
+
+      /* 4: empty history never throws, never breached. */
+      let emptyThrew = false, emptyStatus = null, emptyLive = null;
+      try {
+        emptyStatus = evaluateObjective(latchObj, [], null, null).status;
+        emptyLive = getObjectiveLiveStatus(latchObj, [], null, st({ safety: 66 }));
+      } catch (e) { emptyThrew = true; }
+
+      /* 5: goodUp:false (waiting) - end uses <=, delta stays raw (final-start). */
+      const endWaiting = { id: 'ew', key: 'waiting', type: 'end', target: 62, weight: 3 };
+      const endPass = evaluateObjective(endWaiting, hist({ waiting: 45 }), st({ waiting: 68 }), st({ waiting: 45 })).status; // 45 <= 62, well clear
+      const endFail = evaluateObjective(endWaiting, hist({ waiting: 70 }), st({ waiting: 68 }), st({ waiting: 70 })).status;
+      const deltaWaiting = t => ({ id: 'dw', key: 'waiting', type: 'delta', target: t, weight: 1 });
+      const deltaRawPass = evaluateObjective(deltaWaiting(-25), hist({ waiting: 58 }), st({ waiting: 68 }), st({ waiting: 58 })).status; // -10 >= -25
+      const deltaRawFail = evaluateObjective(deltaWaiting(-6), hist({ waiting: 58 }), st({ waiting: 68 }), st({ waiting: 58 })).status;  // -10 >= -6 false
+
+      /* 6: verdict boundaries land on the correct side. */
+      const verdicts = {
+        v90: getObjectiveVerdict(90), v89: getObjectiveVerdict(89.99),
+        v70: getObjectiveVerdict(70), v69: getObjectiveVerdict(69.99),
+        v45: getObjectiveVerdict(45), v44: getObjectiveVerdict(44.99)
+      };
+
+      /* 7: marginal within 10% of RANGE for a negative target (budget -3.0).
+         range 7 -> tol 0.7; a min of -2.5 (headroom 0.5) must be marginal, which
+         a percent-of-target denominator (0.3) would wrongly score as pass. */
+      const budgetFloor = { id: 'bf', key: 'budget', type: 'floor', target: -3.0, weight: 3 };
+      const marginal = evaluateObjective(budgetFloor, hist({ budget: -2.5 }), st({ budget: 0 }), st({ budget: -2.5 })).status;
+      const comfortable = evaluateObjective(budgetFloor, hist({ budget: -1.0 }), st({ budget: 0 }), st({ budget: -1.0 })).status;
+      const breached = evaluateObjective(budgetFloor, hist({ budget: -3.4 }), st({ budget: 0 }), st({ budget: -3.4 })).status;
+
+      return {
+        idsUnique, keysValid, threePerRole, weightsSumSix, hasCrossMetric, ownerRoleValid,
+        latchStatus: latchEval.status, latchActual: latchEval.actual, latchLive,
+        emptyThrew, emptyStatus, emptyLive,
+        endPass, endFail, deltaRawPass, deltaRawFail, verdicts,
+        marginal, comfortable, breached
+      };
+    });
+
+    ok(s.idsUnique, 'objectives: every objective id is globally unique');
+    ok(s.keysValid, 'objectives: every objective key is a real METRIC_DEFS key');
+    ok(s.threePerRole, 'objectives: every role has exactly three objectives');
+    ok(s.weightsSumSix, 'objectives: every role\'s weights sum to 6');
+    ok(s.hasCrossMetric, 'objectives: every role has an objective off its primaryKey');
+    ok(s.ownerRoleValid, 'objectives: ownerRole resolves each metric to the role that owns it');
+    eq(s.latchStatus, 'fail', 'objectives: a floor breached mid-year latches to fail after recovery');
+    eq(s.latchActual, 60, 'objectives: latched floor reports the worst committed quarter');
+    eq(s.latchLive, 'BREACHED', 'objectives: latched floor reads BREACHED live even after recovery');
+    ok(!s.emptyThrew, 'objectives: empty history never throws');
+    eq(s.emptyStatus, 'pass', 'objectives: empty history evaluates non-breached');
+    eq(s.emptyLive, 'ON TRACK', 'objectives: empty history live status is ON TRACK, never BREACHED');
+    eq(s.endPass, 'pass', 'objectives: end on waiting (goodUp:false) passes when final is at or below target');
+    eq(s.endFail, 'fail', 'objectives: end on waiting fails when final is above target');
+    eq(s.deltaRawPass, 'pass', 'objectives: delta uses raw final-start (>= -12 passes)');
+    eq(s.deltaRawFail, 'fail', 'objectives: delta uses raw final-start (>= -6 fails)');
+    eq(s.verdicts.v90, 'EXCEEDED', 'objectives: score 90 is EXCEEDED');
+    eq(s.verdicts.v89, 'MET', 'objectives: score just under 90 is MET');
+    eq(s.verdicts.v70, 'MET', 'objectives: score 70 is MET');
+    eq(s.verdicts.v69, 'PARTIALLY MET', 'objectives: score just under 70 is PARTIALLY MET');
+    eq(s.verdicts.v45, 'PARTIALLY MET', 'objectives: score 45 is PARTIALLY MET');
+    eq(s.verdicts.v44, 'NOT MET', 'objectives: score just under 45 is NOT MET');
+    eq(s.marginal, 'marginal', 'objectives: marginal uses the metric range (negative budget target)');
+    eq(s.comfortable, 'pass', 'objectives: a comfortable pass is not marginal');
+    eq(s.breached, 'fail', 'objectives: a breached floor is a fail');
+    ok(page._errors.length === 0, 'objectives: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 4: PREGAME SELECTION + ROLES ---------------- */
+  console.log('\nphase 4 pregame selection:');
+  {
+    const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.goto('file://' + path.resolve(__dirname, '..', 'index.html')); // no skipintro
+    await page.waitForFunction(() => typeof pregameScreen !== 'undefined' && !!document.querySelector('.pg'), { timeout: 5000 });
+
+    const s = await page.evaluate(() => {
+      const out = {};
+      advancePregame();                          // intro -> team
+      out.afterIntro = pregameScreen;
+      out.blockedAdvance = (function () { advancePregame(); return pregameScreen; })(); // zero selected -> blocked
+      const btn = pregameRoot().querySelector('.js-pregame-advance');
+      out.continueDisabledAtZero = !!(btn && btn.disabled);
+      /* select two roles by id via the real cards */
+      pregameRoot().querySelector('.js-pregame-role[data-role="cfo"]').click();
+      pregameRoot().querySelector('.js-pregame-role[data-role="md"]').click();
+      const btn2 = pregameRoot().querySelector('.js-pregame-advance');
+      out.continueEnabledAfterSelect = !!(btn2 && !btn2.disabled);
+      advancePregame();                          // team -> brief
+      out.afterSelect = pregameScreen;
+      out.briefCards = pregameRoot().querySelectorAll('.pg-brief-card').length;
+      out.briefObjs = pregameRoot().querySelectorAll('.pg-brief-obj').length;
+      advancePregame();                          // brief -> briefing 0
+      out.afterBrief = pregameScreen;
+      finishPregame();                           // commits roles + starts sim
+      out.roles = GAME.roles.slice();
+      resetGameState();
+      out.afterReset = GAME.roles.slice();
+      return out;
+    });
+
+    eq(s.afterIntro, 'team', 'pregame: BEGIN advances to team select');
+    eq(s.blockedAdvance, 'team', 'pregame: CONTINUE is blocked at zero selections');
+    ok(s.continueDisabledAtZero, 'pregame: CONTINUE is disabled with nothing selected');
+    ok(s.continueEnabledAfterSelect, 'pregame: CONTINUE enables once a role is selected');
+    eq(s.afterSelect, 'brief', 'pregame: CONTINUE reaches the Your Brief screen');
+    eq(s.briefCards, 2, 'pregame: brief screen shows one card per selected role');
+    eq(s.briefObjs, 6, 'pregame: brief screen lists three objectives per role');
+    eq(s.afterBrief, 'briefing', 'pregame: brief confirms into the board briefing');
+    eq(JSON.stringify(s.roles), JSON.stringify(['cfo', 'md']), 'pregame: finishPregame stores selected role ids');
+    eq(JSON.stringify(s.afterReset), JSON.stringify([]), 'pregame: resetGameState clears GAME.roles');
+    ok(errors.length === 0, 'pregame selection: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 4: PREGAME COMPLETES WITH 1 AND 6 ROLES ---------------- */
+  console.log('\nphase 4 pregame completion (high-risk):');
+  {
+    async function completeWith(ids) {
+      const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
+      const errors = [];
+      page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+      page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+      await page.goto('file://' + path.resolve(__dirname, '..', 'index.html'));
+      await page.waitForFunction(() => typeof pregameScreen !== 'undefined' && !!document.querySelector('.pg'), { timeout: 5000 });
+      const res = await page.evaluate((sel) => {
+        advancePregame(); // intro -> team
+        sel.forEach(id => pregameRoot().querySelector('.js-pregame-role[data-role="' + id + '"]').click());
+        advancePregame(); // team -> brief
+        const cards = pregameRoot().querySelectorAll('.pg-brief-card').length;
+        advancePregame(); // brief -> briefing 0
+        finishPregame();  // completes, starts sim
+        return { roles: GAME.roles.slice(), started: simulationStarted, cards };
+      }, ids);
+      res.errors = errors.length;
+      await page.close();
+      return res;
+    }
+
+    const one = await completeWith(['coo']);
+    eq(JSON.stringify(one.roles), JSON.stringify(['coo']), 'pregame: completes end-to-end with one role');
+    ok(one.started, 'pregame: one-role game starts the simulation');
+    eq(one.cards, 1, 'pregame: one brief card for a solo pick');
+    eq(one.errors, 0, 'pregame one-role: no console/page errors');
+
+    const all = await completeWith(['ceo', 'cfo', 'cno', 'coo', 'md', 'gov']);
+    eq(all.roles.length, 6, 'pregame: completes end-to-end with all six roles');
+    eq(all.cards, 6, 'pregame: six brief cards when all roles are picked');
+    ok(all.started, 'pregame: six-role game starts the simulation');
+    eq(all.errors, 0, 'pregame six-role: no console/page errors');
+  }
+
+  /* ---------------- PHASE 4: BRIEF PANEL ---------------- */
+  console.log('\nphase 4 brief panel:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+    await page.evaluate(() => { paused = true; setBoardRoles(['cfo', 'md']); });
+
+    await page.keyboard.press('b');
+    await page.waitForTimeout(120);
+    const opened = await page.evaluate(() => {
+      const r = document.getElementById('briefRoot');
+      return {
+        open: !r.hidden,
+        role: r.getAttribute('role'),
+        modal: r.getAttribute('aria-modal'),
+        roleCards: r.querySelectorAll('.brief-role').length,
+        statuses: r.querySelectorAll('.brief-status').length,
+        paused: paused,
+        focusOnClose: document.activeElement === r.querySelector('.brief-close')
+      };
+    });
+    ok(opened.open, 'brief: B opens the brief panel');
+    eq(opened.role, 'dialog', 'brief: overlay has role=dialog');
+    eq(opened.modal, 'true', 'brief: overlay is aria-modal');
+    eq(opened.roleCards, 2, 'brief: one card per selected role');
+    eq(opened.statuses, 6, 'brief: three objective statuses per role');
+    ok(opened.paused, 'brief: opening the panel pauses the simulation');
+    ok(opened.focusOnClose, 'brief: focus moves into the dialog on open');
+
+    await page.keyboard.press('b');
+    await page.waitForTimeout(120);
+    ok(await page.evaluate(() => document.getElementById('briefRoot').hidden), 'brief: B closes the brief panel');
+
+    await page.keyboard.press('Escape'); // no-op when closed, must not error
+    // Escape closes when open
+    await page.keyboard.press('b');
+    await page.waitForTimeout(80);
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(80);
+    ok(await page.evaluate(() => document.getElementById('briefRoot').hidden), 'brief: Escape closes the brief panel');
+
+    /* B must not open the brief while the board pack (report) overlay is open. */
+    await page.keyboard.press('s');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('b');
+    await page.waitForTimeout(100);
+    const duringReport = await page.evaluate(() => ({
+      report: isReportOpen(),
+      brief: !document.getElementById('briefRoot').hidden
+    }));
+    ok(duringReport.report, 'brief: board pack is open after skip');
+    ok(!duringReport.brief, 'brief: B does not open the panel while the report overlay is open');
+
+    /* Graceful empty state with no roles selected. */
+    const emptyState = await page.evaluate(() => {
+      closeReport();
+      setBoardRoles([]);
+      openBrief();
+      const r = document.getElementById('briefRoot');
+      const txt = r.textContent;
+      const cards = r.querySelectorAll('.brief-role').length;
+      closeBrief();
+      return { cards, hasMessage: /No roles were selected/.test(txt) };
+    });
+    eq(emptyState.cards, 0, 'brief: no role cards render with an empty board');
+    ok(emptyState.hasMessage, 'brief: empty board shows a graceful no-roles message');
+
+    ok(page._errors.length === 0, 'brief panel: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 4: OPTIONS-PAGE ROLE PIPS ---------------- */
+  console.log('\nphase 4 options pips:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+
+    /* With a role selected, the options page renders pips naming that role. */
+    await page.evaluate(() => { paused = true; setBoardRoles(['cfo']); });
+    await page.keyboard.press('s');
+    await page.waitForTimeout(200);
+    await page.click('#repNext'); // results -> performance
+    await page.click('#repNext'); // performance -> issue
+    await page.click('#repNext'); // issue -> options
+    const withRoles = await page.evaluate(() => {
+      const pips = Array.from(document.querySelectorAll('.rep-pip')).map(p => p.textContent);
+      return {
+        pageId: REPORT_PAGES[REPORT.page].id,
+        count: pips.length,
+        cfoPip: pips.some(t => t.indexOf('CFO:') === 0),
+        options: document.querySelectorAll('.rep-option').length
+      };
+    });
+    eq(withRoles.pageId, 'options', 'pips: paged to the options page');
+    ok(withRoles.count > 0, 'pips: options page renders role pips when a role is selected');
+    ok(withRoles.cfoPip, 'pips: a pip is labelled for the selected role (CFO)');
+
+    /* With no roles selected, no pips render and the option cards survive. */
+    const withoutRoles = await page.evaluate(() => {
+      closeReport();
+      setBoardRoles([]);
+      openReport();
+      REPORT.page = REPORT_PAGES.length - 1;
+      _syncReportPages();
+      return {
+        pips: document.querySelectorAll('.rep-pip').length,
+        options: document.querySelectorAll('.rep-option').length
+      };
+    });
+    eq(withoutRoles.pips, 0, 'pips: no pips render when no roles are selected');
+    eq(withoutRoles.options, withRoles.options, 'pips: option cards render unchanged with no roles');
+
+    ok(page._errors.length === 0, 'options pips: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 4: TIMELINE SELF-TEST STILL CLEAN ---------------- */
+  console.log('\nphase 4 timeline self-test:');
+  {
+    const page = await freshPage(browser);
+    const clean = await page.evaluate(() => runTimelineSelfTest().failures.length);
+    eq(clean, 0, 'timeline: self-test remains clean after phase 4');
+    ok(page._errors.length === 0, 'timeline self-test: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

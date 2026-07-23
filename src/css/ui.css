@@ -192,6 +192,38 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .facil-effects{font-size:10px; letter-spacing:.5px; color:var(--dim); border-top:1px solid var(--line); padding-top:5px;}
 @media (max-width:640px){ .facil-procon{grid-template-columns:1fr;} }
 
+/* ---------- board brief overlay (phase 4) ----------
+   Same overlay chrome as the facilitator notes; objective status pills reuse
+   the phase-1 band-{tone} contract and its shared tone variables. */
+.brief-root[hidden]{display:none;}
+.brief-root{
+  position:fixed; inset:0; z-index:32; display:flex; align-items:center; justify-content:center;
+  background:rgba(5,7,12,.86); padding:18px; color:var(--ink);
+}
+.brief-modal{
+  width:min(720px,96vw); max-height:92vh; display:flex; flex-direction:column;
+  border:2px solid var(--line); background:#101522; box-shadow:0 10px 0 #05070c;
+}
+.brief-top{display:flex; align-items:center; gap:12px; padding:10px 12px; border-bottom:2px solid var(--line);}
+.brief-top h2{font-size:14px; letter-spacing:2px;}
+.brief-sub{font-size:10px; color:var(--amber); letter-spacing:1px;}
+.brief-close{margin-left:auto;}
+.brief-body{min-height:0; overflow:auto; padding:12px; display:flex; flex-direction:column; gap:10px;}
+.brief-p{font-size:12px; line-height:1.5; color:var(--ink);}
+.brief-role{border:2px solid var(--line); border-left:6px solid var(--teal); background:#0a0c13; padding:9px 11px; display:flex; flex-direction:column; gap:6px;}
+.brief-role-name{font-size:12px; font-weight:bold; letter-spacing:1px; color:var(--amber);}
+.brief-role-text{font-size:11px; line-height:1.45; color:var(--ink);}
+.brief-obj{border-top:1px solid var(--line); padding-top:6px; display:flex; flex-direction:column; gap:3px;}
+.brief-obj-meta{display:flex; align-items:baseline; gap:10px;}
+.brief-obj-target{font-size:9px; letter-spacing:1px; color:var(--dim);}
+.brief-status{margin-left:auto; font-size:9px; font-weight:bold; letter-spacing:1px; white-space:nowrap;}
+.brief-status.band-critical{color:var(--critical);}
+.brief-status.band-warn{color:var(--amber);}
+.brief-status.band-neutral{color:var(--dim);}
+.brief-status.band-good{color:var(--green);}
+.brief-status.band-great{color:var(--teal);}
+.brief-obj-label{font-size:11px; line-height:1.4; color:var(--ink);}
+
 .rep-root[hidden]{display:none;}
 .rep-root{
   position:fixed; inset:0; z-index:30; display:flex; align-items:center; justify-content:center;
@@ -251,6 +283,19 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-root .good{color:#1e8f4e;}
 .rep-root .bad{color:#c23434;}
 .rep-root .flat{color:#4a5470;}
+
+/* Per-role objective pips on the options page (phase 4). Reuse the band-{tone}
+   contract with paper-legible inks (same values as rep-perf-cell). */
+.rep-pips{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px;}
+.rep-pip{
+  font-style:normal; border:1px solid #c3cbdc; background:#eef2f8; padding:3px 6px;
+  font-size:9px; font-weight:bold; letter-spacing:.5px;
+}
+.rep-pip.band-critical{color:var(--critical); border-color:#e0a9a9;}
+.rep-pip.band-warn{color:#b07d10; border-color:#e6cf94;}
+.rep-pip.band-neutral{color:#1a2236;}
+.rep-pip.band-good{color:#1e8f4e; border-color:#a9d8bb;}
+.rep-pip.band-great{color:#0f8f82;}
 .rep-outcome{border:2px solid #23c4b4; background:#e9f6f4; padding:10px; margin-top:10px;}
 
 /* ---------- Performance Analysis page (phase 3) ---------- */

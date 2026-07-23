@@ -68,6 +68,8 @@ function _chooseReportOption(index){
   var outcome=confirmBoardDecision(REPORT.data.quarter.id, option.id);
   if(!outcome) return;
   _showRecordedDecision(outcome);
+  /* Recompute objective status against the freshly committed decision. */
+  if(typeof refreshBrief==='function') refreshBrief();
 }
 
 function openReport(){

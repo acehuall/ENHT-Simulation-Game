@@ -108,8 +108,14 @@ function _facilitatorNotesOpen(){
 function _boardPackOpen(){
   return typeof isReportOpen==='function' && isReportOpen();
 }
+function _briefPanelOpen(){
+  return typeof isBriefOpen==='function' && isBriefOpen();
+}
 
-/* Facilitator hotkeys: S skip · P pause · F facilitator notes · R restart. */
+/* Facilitator hotkeys: S skip · P pause · F facilitator notes · B board brief ·
+   R restart. B mirrors F: it never fires while a text field has focus, while
+   the board pack (report) overlay is open, or during the pregame flow
+   (simulationStarted is false until the game starts). */
 document.addEventListener('keydown',function(event){
   if(!simulationStarted || event.altKey || event.ctrlKey || event.metaKey) return;
   /* Held keys must not re-fire actions (e.g. repeatedly re-opening a modal). */
@@ -118,18 +124,25 @@ document.addEventListener('keydown',function(event){
     if(_facilitatorNotesOpen()){
       event.preventDefault();
       closeFacilitatorNotes();
+    }else if(_briefPanelOpen()){
+      event.preventDefault();
+      closeBrief();
     }
     return;
   }
   if(/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return;
   var key=event.key.toLowerCase();
-  /* While an overlay owns the screen, only F is honoured - to toggle the
-     facilitator notes. Skip/pause/restart are suppressed so a stray keypress
-     cannot mutate simulation state behind a modal. */
-  if(_facilitatorNotesOpen() || _boardPackOpen()){
-    if(key==='f' && !_boardPackOpen()){
+  /* While an overlay owns the screen, only the key that opened it is honoured -
+     F closes the facilitator notes, B closes the brief. The board pack suppresses
+     both. Skip/pause/restart are suppressed so a stray keypress cannot mutate
+     simulation state behind a modal. */
+  if(_facilitatorNotesOpen() || _boardPackOpen() || _briefPanelOpen()){
+    if(key==='f' && !_boardPackOpen() && !_briefPanelOpen()){
       event.preventDefault();
       if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
+    }else if(key==='b' && !_boardPackOpen() && !_facilitatorNotesOpen()){
+      event.preventDefault();
+      if(typeof toggleBrief==='function') toggleBrief();
     }
     return;
   }
@@ -146,6 +159,10 @@ document.addEventListener('keydown',function(event){
       event.preventDefault();
       if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
       break;
+    case 'b':
+      event.preventDefault();
+      if(typeof toggleBrief==='function') toggleBrief();
+      break;
     case 'r':
       event.preventDefault();
       confirmCurrentQuarterRestart();
@@ -155,6 +172,11 @@ document.addEventListener('keydown',function(event){
 if($('btnNotes')){
   $('btnNotes').onclick=function(){
     if(typeof toggleFacilitatorNotes==='function') toggleFacilitatorNotes();
+  };
+}
+if($('btnBrief')){
+  $('btnBrief').onclick=function(){
+    if(typeof toggleBrief==='function') toggleBrief();
   };
 }
 $('btnFs').onclick=function(){

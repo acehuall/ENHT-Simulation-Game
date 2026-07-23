@@ -66,6 +66,44 @@
 .feed-pressure{border-left-color:var(--red);}
 .feed-response{border-left-color:var(--teal);}
 .feed-consequence{border-left-color:var(--green);}
+.feed-warn{border-left-color:var(--amber);}
+.feed-warn .feed-text{color:var(--amber);}
+.feed-critical{border-left-color:var(--critical);}
+.feed-critical .feed-text{color:var(--critical);}
+.feed-praise{border-left-color:var(--teal);}
+.feed-praise .feed-text{color:var(--teal);}
+
+/* Scope transient alert layers above the simulation/board room and below the
+   page-level facilitator and board-pack modals. */
+.frame{isolation:isolate;}
+.alert-banner{
+  position:absolute; left:0; right:0; top:0; z-index:20;
+  padding:10px 16px; text-align:center; pointer-events:none;
+  font-size:11px; letter-spacing:1px; line-height:1.5;
+  color:var(--ink); background:rgba(10,14,20,.94);
+  border-bottom:2px solid var(--critical);
+  opacity:0; transition:opacity .2s linear;
+}
+.alert-banner b{display:block; color:var(--critical); letter-spacing:2px;}
+.alert-banner.alert-critical{animation:alertPulse 1.2s ease-in-out infinite;}
+.alert-toast{
+  position:absolute; right:12px; top:12px; z-index:20; max-width:320px;
+  padding:8px 12px; pointer-events:none;
+  font-size:10px; letter-spacing:normal; line-height:1.5;
+  color:var(--ink); background:rgba(10,14,20,.94);
+  border-left:3px solid var(--amber);
+  opacity:0; transition:opacity .2s linear;
+}
+.alert-toast b{display:block; letter-spacing:1px;}
+.alert-toast.alert-warn{border-left-color:var(--amber);}
+.alert-toast.alert-warn b{color:var(--amber);}
+.alert-toast.alert-praise{border-left-color:var(--teal);}
+.alert-toast.alert-praise b{color:var(--teal);}
+
+@keyframes alertPulse{
+  0%,100%{box-shadow:0 0 0 rgba(224,82,82,0); border-bottom-color:var(--critical);}
+  50%{box-shadow:0 2px 14px rgba(224,82,82,.55); border-bottom-color:#ff7a7a;}
+}
 
 .sceneNav{display:flex; justify-content:flex-end; gap:8px;}
 .sceneNav .btn[disabled]{opacity:.45; cursor:default;}

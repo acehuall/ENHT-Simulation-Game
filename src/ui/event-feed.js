@@ -47,7 +47,7 @@ function _feedKind(slot){
 /* Called each render tick with the current simulation time. Detects quarter
    changes or a rewind (scrub back / restart) and rebuilds the log, then appends
    any timeline beats that have become due since the last update. */
-function updateEventFeed(simT){
+function updateEventFeed(simT, frameId){
   var timeline=(typeof getTimeline==='function') && getTimeline();
   if(!timeline) return;
   var quarterId=timeline.quarterId;
@@ -69,6 +69,20 @@ function updateEventFeed(simT){
     if(ev.t<=simT && !_feedLogged[key]){
       _feedLogged[key]=true;
       feedAddEntry(simMonthLabel(ev.t), ev.toast || ev.name, _feedKind(ev.slot));
+    }
+  }
+
+  /* Threshold narration consumes the same memoised observer result as the
+     overlay layer, so the feed and on-screen alert cannot disagree. */
+  if(typeof observeThresholdCrossings==='function'){
+    var crossings=observeThresholdCrossings(frameId);
+    for(var ci=0;ci<crossings.length;ci++){
+      var threshold=crossings[ci].threshold;
+      feedAddEntry(
+        simMonthLabel(simT),
+        threshold.title+' - '+threshold.line,
+        threshold.severity
+      );
     }
   }
 }

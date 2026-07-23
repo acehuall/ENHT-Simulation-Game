@@ -516,6 +516,277 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 2: DURABLE ALERT RECORD ---------------- */
+  console.log('\nphase 2 durable alerts:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      paused = true;
+      function outcome(quarterId, startChanges, endChanges) {
+        const startStats = Object.assign(initialMetricStats(), startChanges || {});
+        const endStats = Object.assign({}, startStats, endChanges || {});
+        return {
+          quarterId,
+          optionId: 'phase2_test',
+          optionTitle: 'Phase 2 test',
+          decisionSummary: 'Threshold test outcome',
+          startStats,
+          endStats,
+          effects: {}
+        };
+      }
+
+      resetGameState();
+      const budgetOutcome = outcome('Q1', { budget: -1.0 }, { budget: -2.0 });
+      const firstApplied = applyBoardDecision(budgetOutcome);
+      const budgetAlert = Object.assign({}, GAME.alerts[0]);
+      const secondApplied = applyBoardDecision(budgetOutcome);
+      const countAfterDuplicate = GAME.alerts.length;
+      const q1BudgetCount = getAlertsForDecisionQuarter('Q1').length;
+      const q2BudgetCount = getAlertsForDecisionQuarter('Q2').length;
+      resetGameState();
+      const clearedCount = GAME.alerts.length;
+
+      const safetyOutcome = outcome('Q1', { safety: 70 }, { safety: 30 });
+      applyBoardDecision(safetyOutcome);
+      setCurrentQuarter('Q2');
+      setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter('Q2'));
+      const safetyAlerts = getAlertsForDecisionQuarter('Q1').map(alert => ({
+        at: alert.at,
+        severity: alert.severity,
+        direction: alert.direction
+      }));
+
+      return {
+        firstApplied,
+        secondApplied,
+        budgetAlert,
+        countAfterDuplicate,
+        q1BudgetCount,
+        q2BudgetCount,
+        clearedCount,
+        safetyAlerts,
+        playbackQuarter: getTimeline().quarterId,
+        decisionQuarter: getTimeline().outcome.quarterId,
+        q2SafetyCount: getAlertsForDecisionQuarter('Q2').length
+      };
+    });
+
+    ok(s.firstApplied, 'alerts: first decision is recorded');
+    ok(!s.secondApplied, 'alerts: duplicate decision is rejected');
+    eq(s.countAfterDuplicate, 1, 'alerts: duplicate decision cannot duplicate durable alerts');
+    eq(s.budgetAlert.key, 'budget', 'alerts: durable record carries the metric key');
+    eq(s.budgetAlert.at, -1.5, 'alerts: durable record carries the crossed threshold');
+    eq(s.budgetAlert.severity, 'warn', 'alerts: durable record preserves authored severity');
+    eq(s.budgetAlert.direction, 'below', 'alerts: durable record preserves authored direction');
+    eq(s.budgetAlert.decisionQuarterId, 'Q1', 'alerts: durable record uses the decision quarter');
+    eq(s.q1BudgetCount, 1, 'alerts: decision-quarter lookup returns the alert');
+    eq(s.q2BudgetCount, 0, 'alerts: lookup does not conflate playback and decision quarters');
+    eq(s.clearedCount, 0, 'alerts: game reset clears durable history');
+    eq(JSON.stringify(s.safetyAlerts), JSON.stringify([
+      { at: 55, severity: 'warn', direction: 'below' },
+      { at: 35, severity: 'critical', direction: 'below' }
+    ]), 'alerts: committed multi-crossings retain travel order');
+    eq(s.playbackQuarter, 'Q2', 'alerts: Q1 decision is dramatized during Q2 playback');
+    eq(s.decisionQuarter, 'Q1', 'alerts: playback timeline retains the deciding quarter');
+    eq(s.q2SafetyCount, 0, 'alerts: Q1 safety alerts are not attributed to Q2');
+    ok(page._errors.length === 0, 'durable alerts: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 2: LIVE OBSERVER + DELIVERY ---------------- */
+  console.log('\nphase 2 live alerts:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      paused = true;
+
+      /* A forward seek across DEFAULT_OUTCOME's budget warning is silent. */
+      seekSimulation(0);
+      render();
+      feedReset(getTimeline().quarterId);
+      seekSimulation(QLEN);
+      render();
+      const forwardSeek = {
+        severityEntries: document.querySelectorAll(
+          '#eventFeedList .feed-warn, #eventFeedList .feed-critical, #eventFeedList .feed-praise').length,
+        queue: _alertQueue.length,
+        active: _alertActive,
+        bannerClass: document.getElementById('alertBanner').className,
+        bannerOpacity: document.getElementById('alertBanner').style.opacity,
+        toastClass: document.getElementById('alertToast').className,
+        toastOpacity: document.getElementById('alertToast').style.opacity
+      };
+
+      /* Normal uninterrupted playback crosses the same warning once. */
+      function playDefaultPass() {
+        seekSimulation(0);
+        render();
+        for (let t = 0.25; t <= QLEN; t += 0.25) {
+          clock = t;
+          render();
+        }
+        return document.querySelectorAll('#eventFeedList .feed-warn').length;
+      }
+      const firstPassCount = playDefaultPass();
+      const firstActive = _alertActive && {
+        key: _alertActive.key,
+        severity: _alertActive.severity,
+        title: _alertActive.title
+      };
+      render();
+      render();
+      const stableCount = document.querySelectorAll('#eventFeedList .feed-warn').length;
+      const secondPassCount = playDefaultPass();
+
+      /* A theatre-only safety dip is rejected because committed endpoints do
+         not cross the threshold. It is absent from both live and durable data. */
+      resetGameState();
+      const sameStats = Object.assign(initialMetricStats(), { safety: 60 });
+      const theatreOutcome = {
+        quarterId: 'Q1', optionId: 'theatre_only', optionTitle: 'Theatre only',
+        decisionSummary: 'Temporary dip', startStats: Object.assign({}, sameStats),
+        endStats: Object.assign({}, sameStats), effects: {}
+      };
+      applyBoardDecision(theatreOutcome);
+      TIMELINE = { quarterId: 'Q2', outcome: theatreOutcome, banner: null, statEvents: [] };
+      Object.keys(sameStats).forEach(key => { METRIC_CUR[key] = sameStats[key]; });
+      feedReset('Q2');
+      resetAlerts();
+      METRIC_CUR.safety = 50;
+      updateEventFeed(10, 9001);
+      updateAlerts(9001);
+      const theatreOnly = {
+        durable: GAME.alerts.length,
+        feed: document.querySelectorAll(
+          '#eventFeedList .feed-warn, #eventFeedList .feed-critical, #eventFeedList .feed-praise').length,
+        queue: _alertQueue.length,
+        active: _alertActive
+      };
+
+      /* Eligible crossings are memoised and handed unchanged to both channels. */
+      const eligibleStart = Object.assign(initialMetricStats(), { safety: 60 });
+      const eligibleEnd = Object.assign({}, eligibleStart, { safety: 50 });
+      const eligibleOutcome = {
+        quarterId: 'Q1', optionId: 'eligible', optionTitle: 'Eligible',
+        decisionSummary: 'Committed safety warning',
+        startStats: eligibleStart, endStats: eligibleEnd, effects: {}
+      };
+      TIMELINE = { quarterId: 'Q2', outcome: eligibleOutcome, banner: null, statEvents: [] };
+      Object.keys(eligibleStart).forEach(key => { METRIC_CUR[key] = eligibleStart[key]; });
+      feedReset('Q2');
+      resetAlerts();
+      METRIC_CUR.safety = 50;
+      updateEventFeed(10, 9100);
+      const memoA = observeThresholdCrossings(9100);
+      const memoB = observeThresholdCrossings(9100);
+      updateAlerts(9100);
+      const feedEntry = document.querySelector('#eventFeedList .feed-warn .feed-text');
+      const shared = {
+        sameReference: memoA === memoB,
+        memoLength: memoA.length,
+        feedCount: document.querySelectorAll('#eventFeedList .feed-warn').length,
+        feedText: feedEntry && feedEntry.textContent,
+        activeKey: _alertActive && _alertActive.key,
+        activeSeverity: _alertActive && _alertActive.severity,
+        activeTitle: _alertActive && _alertActive.title,
+        nextFrameCount: observeThresholdCrossings(9101).length
+      };
+
+      /* Queue priority is critical, warning, praise regardless of input order. */
+      _alertQueue = [];
+      _enqueueCrossings([
+        { key: 'rep', direction: 'above', threshold: { at: 82, severity: 'praise', title: 'P', line: 'P' } },
+        { key: 'budget', direction: 'below', threshold: { at: -1.5, severity: 'warn', title: 'W', line: 'W' } },
+        { key: 'safety', direction: 'below', threshold: { at: 35, severity: 'critical', title: 'C', line: 'C' } }
+      ]);
+      const priority = _alertQueue.map(alert => alert.severity);
+
+      return {
+        forwardSeek,
+        firstPassCount,
+        stableCount,
+        secondPassCount,
+        firstActive,
+        theatreOnly,
+        shared,
+        priority
+      };
+    });
+
+    eq(s.forwardSeek.severityEntries, 0, 'live alerts: forward seek adds no threshold feed entry');
+    eq(s.forwardSeek.queue, 0, 'live alerts: forward seek leaves the alert queue empty');
+    ok(s.forwardSeek.active === null, 'live alerts: forward seek leaves no active overlay');
+    eq(s.forwardSeek.bannerClass, 'alert-banner', 'live alerts: forward seek leaves banner at base class');
+    eq(s.forwardSeek.bannerOpacity, '0', 'live alerts: forward seek leaves banner hidden');
+    eq(s.forwardSeek.toastClass, 'alert-toast', 'live alerts: forward seek leaves toast at base class');
+    eq(s.forwardSeek.toastOpacity, '0', 'live alerts: forward seek leaves toast hidden');
+    eq(s.firstPassCount, 1, 'live alerts: normal playback narrates one eligible crossing');
+    eq(s.stableCount, 1, 'live alerts: repeated renders do not duplicate a crossing');
+    eq(s.secondPassCount, 1, 'live alerts: replay after seek re-fires once in the new pass');
+    eq(s.firstActive.key, 'budget', 'live alerts: overlay identifies the crossed metric');
+    eq(s.firstActive.severity, 'warn', 'live alerts: warning is delivered through the toast channel');
+    eq(s.theatreOnly.durable, 0, 'live alerts: theatre-only dip creates no durable record');
+    eq(s.theatreOnly.feed, 0, 'live alerts: theatre-only dip creates no feed entry');
+    eq(s.theatreOnly.queue, 0, 'live alerts: theatre-only dip creates no queued overlay');
+    ok(s.theatreOnly.active === null, 'live alerts: theatre-only dip creates no active overlay');
+    ok(s.shared.sameReference, 'live alerts: observer memo returns the same array within a frame');
+    eq(s.shared.memoLength, 1, 'live alerts: shared memo contains the eligible crossing');
+    eq(s.shared.feedCount, 1, 'live alerts: feed consumes the shared crossing once');
+    eq(s.shared.activeKey, 'safety', 'live alerts: overlay consumes the same metric crossing');
+    eq(s.shared.activeSeverity, 'warn', 'live alerts: feed and overlay preserve the same severity');
+    ok(s.shared.feedText.indexOf(s.shared.activeTitle) === 0,
+      'live alerts: feed and overlay use the same authored alert title');
+    eq(s.shared.nextFrameCount, 0, 'live alerts: crossing is deduped for the rest of the pass');
+    eq(JSON.stringify(s.priority), JSON.stringify(['critical', 'warn', 'praise']),
+      'live alerts: queue prioritises critical, warning, then praise');
+    ok(page._errors.length === 0, 'live alerts: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 2: OVERLAY LIFECYCLE + TIMELINE ---------------- */
+  console.log('\nphase 2 lifecycle:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      paused = true;
+      let fakeNow = 1000;
+      _alertNow = () => fakeNow;
+      _alertActive = {
+        key: 'safety', at: 35, direction: 'below', severity: 'critical',
+        title: '<img src=x onerror=alert(1)>SAFETY BREACH',
+        line: 'Plain & safe', channel: 'banner', shownAt: fakeNow
+      };
+      _alertShow(_alertActive);
+      const escaped = {
+        images: document.querySelectorAll('#alertBanner img').length,
+        text: document.getElementById('alertBanner').textContent,
+        className: document.getElementById('alertBanner').className
+      };
+      fakeNow += (ALERT_HOLD + ALERT_FADE + 0.1) * 1000;
+      _alertTick();
+      const cleared = {
+        opacity: document.getElementById('alertBanner').style.opacity,
+        className: document.getElementById('alertBanner').className,
+        text: document.getElementById('alertBanner').textContent,
+        active: _alertActive
+      };
+      const selfTest = runTimelineSelfTest();
+      return { escaped, cleared, selfTest };
+    });
+
+    eq(s.escaped.images, 0, 'lifecycle: alert copy is escaped as plain text');
+    ok(s.escaped.text.indexOf('<img') === 0, 'lifecycle: escaped alert text remains readable');
+    eq(s.escaped.className, 'alert-banner alert-critical', 'lifecycle: critical banner receives its severity class');
+    eq(s.cleared.opacity, '0', 'lifecycle: critical banner fades to hidden');
+    eq(s.cleared.className, 'alert-banner', 'lifecycle: cleared banner returns to its base class');
+    eq(s.cleared.text, '', 'lifecycle: cleared banner removes stale copy');
+    ok(s.cleared.active === null, 'lifecycle: expired alert releases the active slot');
+    eq(s.selfTest.failures.length, 0, 'lifecycle: timeline validator remains clean');
+    ok(page._errors.length === 0, 'lifecycle: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

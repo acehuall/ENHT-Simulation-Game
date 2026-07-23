@@ -1,10 +1,4 @@
 'use strict';
-function escapeHTML(s){
-  return String(s == null ? '' : s).replace(/[&<>"']/g, function(ch){
-    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch];
-  });
-}
-
 function seekSimulation(t){
   var target=clamp(Number(t)||0,0,QLEN);
   clock=target;
@@ -13,6 +7,7 @@ function seekSimulation(t){
   if(target<QLEN) reportOpenedForQuarter=false;
   resetMetrics();
   updateMetrics(target);
+  if(typeof resetAlerts==='function') resetAlerts();
   syncBoardPackButton();
 }
 

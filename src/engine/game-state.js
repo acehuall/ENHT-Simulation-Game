@@ -7,7 +7,8 @@ var GAME = {
   selectedOptionId:null,
   decisionByQuarterId:{},
   decisions:[],
-  stats:initialMetricStats()
+  stats:initialMetricStats(),
+  alerts:[]
 };
 
 function isQuarterDecided(quarterId){
@@ -115,7 +116,45 @@ function applyBoardDecision(outcome){
     endStats:cloneStats(outcome.endStats),
     effects:mergeMetricEffects(outcome.effects, {})
   });
+  recordDecisionAlerts(outcome);
   return true;
+}
+
+/* Durable alert history is derived only from the committed decision movement.
+   Playback can be rewound or replayed, so it must never write to this list. */
+function recordDecisionAlerts(outcome){
+  if(typeof getThresholdCrossings!=='function') return;
+  for(var i=0;i<METRIC_DEFS.length;i++){
+    var def=METRIC_DEFS[i];
+    var crossings=getThresholdCrossings(
+      def.key,
+      outcome.startStats[def.key],
+      outcome.endStats[def.key]
+    );
+    for(var c=0;c<crossings.length;c++){
+      var crossing=crossings[c];
+      GAME.alerts.push({
+        decisionQuarterId:outcome.quarterId,
+        key:def.key,
+        at:crossing.threshold.at,
+        direction:crossing.direction,
+        severity:crossing.threshold.severity,
+        title:crossing.threshold.title,
+        line:crossing.threshold.line,
+        value:outcome.endStats[def.key]
+      });
+    }
+  }
+}
+
+function getAlertsForDecisionQuarter(decisionQuarterId){
+  var alerts=[];
+  for(var i=0;i<GAME.alerts.length;i++){
+    if(GAME.alerts[i].decisionQuarterId===decisionQuarterId){
+      alerts.push(GAME.alerts[i]);
+    }
+  }
+  return alerts;
 }
 
 function resetGameState(){
@@ -126,6 +165,7 @@ function resetGameState(){
   GAME.decisionByQuarterId={};
   GAME.decisions=[];
   GAME.stats=initialMetricStats();
+  GAME.alerts=[];
   setSelectedOption(getCurrentQuarter().options[0].id);
 }
 

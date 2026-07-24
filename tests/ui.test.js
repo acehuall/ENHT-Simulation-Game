@@ -1402,6 +1402,107 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 5: CQC RATING MODEL ---------------- */
+  console.log('\nphase 5 rating model:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      const clone = ch => Object.assign(initialMetricStats(), ch || {});
+
+      /* 1: waiting flips; 20 <-> 80 across its 0..100 range. */
+      const waiting20 = toRatingSpace('waiting', 20);
+      const waiting80 = toRatingSpace('waiting', 80);
+
+      /* 2: every goodUp:true metric is unchanged by the flip. */
+      let goodUpIdentity = true;
+      METRIC_DEFS.forEach(def => {
+        if (def.goodUp !== false) {
+          [def.min, def.start, def.max].forEach(v => {
+            if (toRatingSpace(def.key, v) !== v) goodUpIdentity = false;
+          });
+        }
+      });
+
+      /* 3: lower waiting scores higher (the inversion, end to end). */
+      const lowWaitScore = computeTrustRating(clone({ waiting: 20 })).score;
+      const highWaitScore = computeTrustRating(clone({ waiting: 80 })).score;
+
+      /* 4: core_stat_low fires for high (bad) waiting, not for low (good). */
+      const caps80 = getRatingCaps(clone({ waiting: 80 }));
+      const caps20 = getRatingCaps(clone({ waiting: 20 }));
+      const coreFires80 = caps80.some(c => c.cap.id === 'core_stat_low' && c.evidenceKey === 'waiting');
+      const coreFires20 = caps20.some(c => c.cap.id === 'core_stat_low');
+
+      /* 5: the starting position scores 56.1, band good. */
+      const start = computeTrustRating(initialMetricStats());
+
+      /* 6: weights sum to exactly 1.00. */
+      let weightSum = 0;
+      Object.keys(RATING_MODEL.weights).forEach(k => { weightSum += RATING_MODEL.weights[k]; });
+
+      /* 7: budget is not a weighted term. */
+      const budgetInBreakdown = start.breakdown.some(r => r.key === 'budget');
+
+      /* 8: budget adjustment thresholds. */
+      const surplus = getRatingBudgetAdjustment(clone({ budget: 1.5 })).amount;
+      const deficit = getRatingBudgetAdjustment(clone({ budget: -3.5 })).amount;
+      const between = getRatingBudgetAdjustment(clone({ budget: -1.0 })).amount;
+
+      /* 9: safety 29, everything else at its best -> inadequate (cap dominates). */
+      const safetyBreach = computeTrustRating({ budget: 2, waiting: 0, patsat: 100, morale: 100, safety: 29, rep: 100 });
+
+      /* 10: an index metric at rating-space 24 caps to requires on a high base. */
+      const coreCap = computeTrustRating({ budget: 0, waiting: 0, patsat: 24, morale: 100, safety: 100, rep: 100 });
+
+      /* 11: budget -6.5 caps to requires on a high base. */
+      const deficitCap = computeTrustRating({ budget: -6.5, waiting: 0, patsat: 100, morale: 100, safety: 100, rep: 100 });
+
+      /* 12: a cap never raises - safety 29 on an already-inadequate base stays inadequate. */
+      const capNoRaise = computeTrustRating({ budget: 0, waiting: 100, patsat: 0, morale: 0, safety: 29, rep: 0 });
+
+      /* 13: the waiting breakdown row exposes both columns. */
+      const waitRow = start.breakdown.find(r => r.key === 'waiting');
+
+      return {
+        waiting20, waiting80, goodUpIdentity,
+        lowWaitScore, highWaitScore,
+        coreFires80, coreFires20,
+        startBase: start.baseScore, startBand: start.band.id,
+        weightSum, budgetInBreakdown,
+        surplus, deficit, between,
+        safetyBreachBand: safetyBreach.band.id,
+        coreCapBand: coreCap.band.id, coreCapFrom: coreCap.cappedFrom && coreCap.cappedFrom.id,
+        deficitCapBand: deficitCap.band.id,
+        capNoRaiseBand: capNoRaise.band.id,
+        waitRow
+      };
+    });
+
+    eq(s.waiting20, 80, 'rating: toRatingSpace flips waiting 20 -> 80');
+    eq(s.waiting80, 20, 'rating: toRatingSpace flips waiting 80 -> 20');
+    ok(s.goodUpIdentity, 'rating: goodUp:true metrics pass through toRatingSpace unchanged');
+    ok(s.lowWaitScore > s.highWaitScore, 'rating: lower (better) waiting scores higher than high waiting');
+    ok(s.coreFires80, 'rating: core_stat_low fires for waiting 80 (rating space 20)');
+    ok(!s.coreFires20, 'rating: core_stat_low does not fire for waiting 20 (rating space 80)');
+    ok(Math.abs(s.startBase - 56.1) < 1e-9, 'rating: starting stats score 56.1 (expected 56.1, got ' + s.startBase + ')');
+    eq(s.startBand, 'good', 'rating: starting stats land in the GOOD band under the rebased bands');
+    ok(Math.abs(s.weightSum - 1.0) < 1e-9, 'rating: the five weights sum to exactly 1.00');
+    ok(!s.budgetInBreakdown, 'rating: budget is absent from the weighted breakdown');
+    eq(s.surplus, 5, 'rating: a surplus >= +£1.0m adds 5');
+    eq(s.deficit, -10, 'rating: a deficit <= -£3.0m subtracts 10');
+    eq(s.between, 0, 'rating: a budget between the thresholds adjusts by 0');
+    eq(s.safetyBreachBand, 'inadequate', 'rating: safety 29 forces inadequate even at an otherwise-outstanding base');
+    eq(s.coreCapBand, 'requires', 'rating: an index metric at rating-space 24 caps to requires on a high base');
+    eq(s.coreCapFrom, 'outstanding', 'rating: the core cap records the pre-cap band it lowered from');
+    eq(s.deficitCapBand, 'requires', 'rating: budget -6.5 caps to requires on a high base');
+    eq(s.capNoRaiseBand, 'inadequate', 'rating: a cap never raises an already-inadequate rating to requires');
+    eq(s.waitRow.inverted, true, 'rating: the waiting breakdown row is marked inverted');
+    eq(s.waitRow.value, 68, 'rating: the waiting breakdown row carries the raw metric value');
+    eq(s.waitRow.ratingValue, 32, 'rating: the waiting breakdown row carries the flipped rating value');
+    ok(page._errors.length === 0, 'rating model: no console/page errors');
+    await page.close();
+  }
+
   /* ---------------- PHASE 5: NEW GAME RESET ---------------- */
   console.log('\nphase 5 new game:');
   {

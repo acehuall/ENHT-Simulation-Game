@@ -184,16 +184,18 @@ Six core stats. All 0–100 except Budget (£m, −10 to +10):
 
 **Final rating.** Score `= 0.25·Safety + 0.20·Waiting + 0.20·PatSat + 0.20·Morale + 0.15·Rep`, then budget adjustment: final surplus ≥ +£1m → +5; deficit ≤ −£3m → −10.
 
-**Caps (the sustainability lesson, enforced):** any core stat < 25 → rating capped at *Requires Improvement*; Safety < 30 → automatic *Inadequate*; Budget ≤ −£6m → capped at *Requires Improvement*.
+> **⚠ Waiting is a composite access index where LOWER IS BETTER** (68 start, 100 = access collapse), as authored in `scenario-data.js` (`goodUp:false`) and built into every band, threshold, alert and objective from phases 1–4. This paragraph's formula and the caps below therefore evaluate in **rating space**, where each metric is direction-normalised so higher is always better: waiting is flipped `(min+max)−value` before it is weighted or cap-tested, and only there (`toRatingSpace` in `engine/rating.js`). An earlier draft of this section read waiting as higher-is-better and is corrected here; re-authoring waiting the other way would invalidate all of phases 1–4, so the metric definition stands and the score adapts to it.
+
+**Caps (the sustainability lesson, enforced), all evaluated in rating space:** any core stat < 25 in rating space → capped at *Requires Improvement* (for waiting the dangerous end is **high**, so this fires when raw waiting is **above 75**, not below 25); Safety < 30 → automatic *Inadequate* (raw and rating space coincide for a higher-is-better metric); Budget ≤ −£6m → capped at *Requires Improvement* (read on raw budget). Caps only ever push a rating **down**, never up. They read the **year-end** closing position, not per-quarter minima — unlike the `floor` objectives, which latch.
 
 | Score | Rating | Stamp colour |
 |---|---|---|
-| ≥ 78 | ★ OUTSTANDING | Teal |
-| 58–77 | GOOD | Green |
-| 38–57 | REQUIRES IMPROVEMENT | Amber |
-| < 38 | INADEQUATE | Red |
+| ≥ 72 | ★ OUTSTANDING | Teal |
+| 52–71 | GOOD | Green |
+| 34–51 | REQUIRES IMPROVEMENT | Amber |
+| < 34 | INADEQUATE | Red |
 
-Sanity check: starting stats score 63.3 — solidly *Good*, with headroom to climb or crash. A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
+Sanity check: with waiting direction-corrected, starting stats score **56.1** — `0.25·66 + 0.20·(100−68) + 0.20·63 + 0.20·58 + 0.15·60` — solidly *Good* under the rebased bands, with headroom to climb or crash. (The old table's 63.3 only held by scoring a near-critical access position as above-average; the bands are rebased so the design intent — "starting stats score solidly Good" — is preserved rather than the arithmetic.) A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
 
 ---
 

@@ -521,7 +521,16 @@ async function driveToYearEnd(page, roles) {
     eq(s.budgetValueText, '&#8722;&pound;1.8m', 'semantics: metric description reuses ticker money formatting');
     eq(JSON.stringify(s.toneRanks), JSON.stringify([0, 1, 2, 3, 4]), 'semantics: shared tone ranks run from worst to best');
 
-    await page.evaluate(() => { seekSimulation(QLEN); render(); });
+    await page.evaluate(() => {
+      /* Q1 now plays back flat as an opening baseline, so install an explicit
+         budget-warn outcome (0 -> -1.8) to exercise the closing ticker band. */
+      TIMELINE = compileTimeline({
+        quarterId: 'Q1', optionId: 'status_quo', optionTitle: 'Status Quo',
+        decisionSummary: '', startStats: initialMetricStats(),
+        endStats: Object.assign(initialMetricStats(), { budget: -1.8 })
+      }, getQuarterEventConfig('Q1'));
+      seekSimulation(QLEN); render();
+    });
     await page.waitForTimeout(100);
     const colour = await page.evaluate(() => {
       const tick = document.getElementById('t0');
@@ -622,7 +631,16 @@ async function driveToYearEnd(page, roles) {
     const s = await page.evaluate(() => {
       paused = true;
 
-      /* A forward seek across DEFAULT_OUTCOME's budget warning is silent. */
+      /* Q1's opening baseline now plays back flat, so install an explicit
+         budget-warn timeline (0 -> -1.8 crosses the -1.5 threshold once) to
+         exercise the live-alert crossing path. */
+      TIMELINE = compileTimeline({
+        quarterId: 'Q1', optionId: 'status_quo', optionTitle: 'Status Quo',
+        decisionSummary: '', startStats: initialMetricStats(),
+        endStats: Object.assign(initialMetricStats(), { budget: -1.8 })
+      }, getQuarterEventConfig('Q1'));
+
+      /* A forward seek across this budget warning is silent. */
       seekSimulation(0);
       render();
       feedReset(getTimeline().quarterId);
@@ -1028,7 +1046,28 @@ async function driveToYearEnd(page, roles) {
     eq(perf.visiblePanels, 1, 'performance: exactly one panel is visible');
     eq(perf.heads, 4, 'performance: four tab headers render');
 
+    /* Q1 has a single datapoint, so the operations tab shows an explicit
+       insufficient-data note rather than a degenerate single-point chart. */
+    const q1Trend = await page.evaluate(() => ({
+      hasCanvas: !!document.getElementById('repWaitTrend'),
+      hasNote: !!document.querySelector('[data-perf-panel="1"] .rep-perf-nodata')
+    }));
+    ok(!q1Trend.hasCanvas, 'performance: Q1 renders no degenerate single-point chart');
+    ok(q1Trend.hasNote, 'performance: Q1 shows an insufficient-data note for the waiting trend');
+
+    /* Once a second quarter exists the trend chart renders and draws pixels. */
     const chart = await page.evaluate(() => {
+      resetGameState();
+      quarterComplete = true;
+      const q = getCurrentQuarterId();
+      confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+      advanceAfterDecision(q);
+      quarterComplete = true;
+      openReport();
+      for (let i = 0; i < REPORT_PAGES.length; i++) { if (REPORT_PAGES[i].id === 'performance') { REPORT.page = i; break; } }
+      _syncReportPages();
+      setPerfTab(1);
+      REPORT_PAGES.forEach(p => { if (p.afterRender) p.afterRender(REPORT.data); });
       const cv = document.getElementById('repWaitTrend');
       if (!cv) return null;
       const g = cv.getContext('2d');
@@ -1037,8 +1076,8 @@ async function driveToYearEnd(page, roles) {
       for (let i = 0; i < d.length; i += 400) if (d[i] < 200) seen++;
       return { w: cv.width, seen };
     });
-    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width');
-    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels');
+    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width once data exists');
+    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels once data exists');
 
     /* switching tabs preserves the report body's scroll position. Shrink the
        viewport so the panels overflow, scroll to a value both the source and
@@ -2128,12 +2167,15 @@ async function driveToYearEnd(page, roles) {
       }
       const flashCount = Object.keys(litFlashes).length;
 
-      /* 8. authored cue wins: during Q1's authored wardIncidentFlash window
+      /* 8. authored cue wins: within an authored wardIncidentFlash window
          (t0:27..t1:33, tile [7,14]) with safety critical, the pressure channel
-         must never drive [7,14] while it still flashes its other tiles. Spy on
-         the shared glyph draw to observe exactly which tiles pressure drives. */
+         must never drive [7,14] while it still flashes its other tiles. Q1's
+         baseline no longer authors an incident flash, so inject one to exercise
+         the suppression. Spy on the shared glyph draw to observe which tiles
+         pressure drives. */
       setCurrentQuarter('Q1');
       setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter('Q1'));
+      getTimeline().visualEvents.push({ type: 'wardIncidentFlash', t0: 27, t1: 33, tile: [7, 14] });
       const authoredAt30 = getTimelineEventsAt('wardIncidentFlash', 30).map(a => a.tile);
       METRIC_CUR.safety = 20; resetMetricPressure(27);
       const drawn = [];

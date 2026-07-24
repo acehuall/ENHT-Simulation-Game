@@ -259,11 +259,16 @@ function fmtMoney(v){
   return sign+'&pound;'+Math.abs(v).toFixed(1)+'m';
 }
 
+/* The opening quarter is a stable baseline: an ordinary, functioning hospital
+   shown before the board makes its first decision. endStats therefore match
+   startStats exactly, so Q1 plays back flat and gives the player a fixed
+   reference point. Stat movement only begins once a board decision resolves
+   (dramatized from Q2 onward). */
 var DEFAULT_OUTCOME = {
   quarterId:'Q0',
   optionId:'status_quo',
   optionTitle:'Status Quo',
-  decisionSummary:'Baseline winter pressure plays out before the board makes its first decision.',
+  decisionSummary:'The hospital runs at its ordinary baseline before the board makes its first decision.',
   startStats:{budget:0, waiting:68, patsat:63, morale:58, safety:66, rep:60},
-  endStats:{budget:-1.8, waiting:69, patsat:65, morale:61, safety:68, rep:60}
+  endStats:{budget:0, waiting:68, patsat:63, morale:58, safety:66, rep:60}
 };

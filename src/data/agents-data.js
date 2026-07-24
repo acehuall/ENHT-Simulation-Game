@@ -14,7 +14,9 @@ var ROLE={
   porter:   {top:'#7a8a6d', leg:'#4c5844', hair:'#5a4632'},
   nurse:    {top:'#2f63c7', leg:'#274f9e', hair:'#2e2620'},
   doctor:   {top:'#f4f6f8', leg:'#6b7688', hair:'#6f6a63'},
-  patient:  {top:'#bfe3d3', leg:'#9cc4b2', hair:'#3c332a'},
+  /* Neutral light-blue gown. Illness is shown on the face only (see
+     getRolePalette), so the clothing must not read as green. */
+  patient:  {top:'#a9c4e0', leg:'#7e97ba', hair:'#3c332a'},
   agency:   {top:'#17a9a3', leg:'#0f7f7a', hair:'#20242f'},
   reception:{top:'#8a5fc0', leg:'#5f4287', hair:'#402f22'},
   sitter:   {top:'#d9c78f', leg:'#b3a273', hair:'#57432f'}

@@ -2016,6 +2016,215 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- PHASE 6: ON-MAP METRIC PRESSURE ---------------- */
+  console.log('\nphase 6 metric pressure:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      paused = true;
+      const tones = ['critical', 'warn', 'neutral', 'good', 'great'];
+      const primaryField = { queueDensity: 'byTone', staffIdle: 'idleByTone', incidentRate: 'byTone', pressPresence: 'byTone' };
+
+      /* 1. tone-key coverage: every *ByTone map resolves all five tones to a
+         finite scalar. */
+      let coverage = true;
+      Object.keys(PRESSURE_MODEL).forEach(key => {
+        const model = PRESSURE_MODEL[key];
+        Object.keys(model).forEach(field => {
+          if (!/ByTone$/.test(field)) return;
+          tones.forEach(t => {
+            const v = model[field][t];
+            if (typeof v !== 'number' || !isFinite(v)) coverage = false;
+          });
+        });
+      });
+
+      /* 3. monotonicity: primary intensity is non-increasing as tone rank rises
+         (critical is worst and pushes hardest). Reuses the exported tone rank. */
+      let monotone = true;
+      Object.keys(PRESSURE_MODEL).forEach(key => {
+        const map = PRESSURE_MODEL[key][primaryField[PRESSURE_MODEL[key].channel]];
+        const ranked = tones.slice().sort((a, b) => getToneRank(a) - getToneRank(b));
+        for (let i = 1; i < ranked.length; i++) {
+          if (map[ranked[i]] > map[ranked[i - 1]]) monotone = false;
+        }
+      });
+
+      /* 2. inversion guard: waiting worsens upward, so 90 must push harder than
+         40, and 90 must actually band as critical. */
+      METRIC_CUR.waiting = 90; resetMetricPressure(0);
+      const waitHi = getMetricPressure('waiting', 0).intensity;
+      METRIC_CUR.waiting = 40; resetMetricPressure(0);
+      const waitLo = getMetricPressure('waiting', 0).intensity;
+      const waitHiCritical = getMetricBand('waiting', 90).tone === 'critical';
+
+      /* 4. reputation stable renders no press. */
+      METRIC_CUR.rep = 60; resetMetricPressure(0);
+      const repNeutral = getMetricPressure('rep', 0);
+      const repActive = getActivePressures(0).filter(p => p.channel === 'pressPresence').length;
+
+      /* 5. smoothing determinism: settle safety at neutral, drive a transition
+         to critical, then read the same simT twice (byte-identical) and read at
+         atSimT + 1.5 (exactly the target). */
+      METRIC_CUR.safety = 60; resetMetricPressure(0);   // neutral (0.8)
+      METRIC_CUR.safety = 20; updateMetricPressure(1);  // -> critical, anchor at t=1
+      const readA = JSON.stringify(getMetricPressure('safety', 1));
+      const readB = JSON.stringify(getMetricPressure('safety', 1));
+      const settled = getMetricPressure('safety', 2.5).intensity;
+      const criticalTarget = PRESSURE_MODEL.safety.byTone.critical;
+
+      return {
+        coverage, monotone, waitHi, waitLo, waitHiCritical,
+        repNeutralIntensity: repNeutral.intensity, repActive,
+        determinism: readA === readB, settled, criticalTarget
+      };
+    });
+
+    ok(s.coverage, 'pressure: every *ByTone map resolves all five tones to a finite scalar');
+    ok(s.monotone, 'pressure: intensity is non-increasing as tone rank rises');
+    ok(s.waitHi > s.waitLo, 'pressure: waiting at 90 pushes harder than at 40 (tone key, not index)');
+    ok(s.waitHiCritical, 'pressure: waiting at 90 bands as critical');
+    eq(s.repNeutralIntensity, 0, 'pressure: reputation at a neutral value renders no press');
+    eq(s.repActive, 0, 'pressure: neutral reputation contributes no pressPresence channel');
+    ok(s.determinism, 'pressure: getMetricPressure is byte-identical for the same simT');
+    eq(s.settled, s.criticalTarget, 'pressure: intensity equals the target exactly at atSimT + 1.5');
+    ok(page._errors.length === 0, 'pressure: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 6: SCRUB SAFETY + CADENCE + AUTHORED-WINS ---------------- */
+  console.log('\nphase 6 scrub / cadence / authored-wins:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      paused = true;
+
+      /* 6. scrub safety: capture Q1's opening pressure, drive the clock past a
+         tone change, seek back to 0, and confirm the opening state is restored
+         (this is what the seekSimulation reset buys). */
+      seekSimulation(0); render();
+      const opening = JSON.stringify(getActivePressures(0).map(p => ({ c: p.channel, i: +p.intensity.toFixed(4) })));
+      for (let t = 0; t <= QLEN; t += 0.5) { clock = t; render(); }
+      seekSimulation(0); render();
+      const afterScrub = JSON.stringify(getActivePressures(0).map(p => ({ c: p.channel, i: +p.intensity.toFixed(4) })));
+
+      /* 7. incident cadence: at 3.2 flashes/10s, count distinct flash windows
+         after the opening one across a 10s sweep (3.2/10s reads as 3 within a
+         window whose opening flash belongs to the prior period), and confirm
+         each lit window lasts flashDuration. */
+      const period = 10 / 3.2, dur = PRESSURE_MODEL.safety.flashDuration;
+      const litFlashes = {};
+      const step = 0.005;
+      let flash1LitTime = 0;
+      for (let t = 0; t < 10; t += step) {
+        const n = Math.floor(t / period);
+        const lit = (t - n * period) < dur;
+        if (lit) {
+          if (n >= 1) litFlashes[n] = true;
+          if (n === 1) flash1LitTime += step;  // measure one whole flash window
+        }
+      }
+      const flashCount = Object.keys(litFlashes).length;
+
+      /* 8. authored cue wins: during Q1's authored wardIncidentFlash window
+         (t0:27..t1:33, tile [7,14]) with safety critical, the pressure channel
+         must never drive [7,14] while it still flashes its other tiles. Spy on
+         the shared glyph draw to observe exactly which tiles pressure drives. */
+      setCurrentQuarter('Q1');
+      setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter('Q1'));
+      const authoredAt30 = getTimelineEventsAt('wardIncidentFlash', 30).map(a => a.tile);
+      METRIC_CUR.safety = 20; resetMetricPressure(27);
+      const drawn = [];
+      const origGlyph = _drawIncidentGlyph;
+      _drawIncidentGlyph = function (tile) { drawn.push(tile[0] + ',' + tile[1]); };
+      for (let t = 27; t < 33; t += 0.01) _drawIncidentRate(PRESSURE_MODEL.safety.byTone.critical, t);
+      _drawIncidentGlyph = origGlyph;
+      const drovProtectedTile = drawn.indexOf('7,14') >= 0;
+      const droveOtherTiles = drawn.some(d => d !== '7,14');
+
+      return {
+        scrubMatches: opening === afterScrub,
+        opening, flashCount, flash1LitTime, dur,
+        authoredAt30: JSON.stringify(authoredAt30),
+        drovProtectedTile, droveOtherTiles
+      };
+    });
+
+    ok(s.scrubMatches, 'pressure: seeking back to 0 restores Q1 opening pressure (scrub reset)');
+    eq(s.flashCount, 3, 'pressure: 3.2 flashes/10s yields 3 flashes after the opening across a 10s sweep');
+    ok(Math.abs(s.flash1LitTime - s.dur) < 0.02, 'pressure: each flash lasts flashDuration');
+    eq(s.authoredAt30, JSON.stringify([[7, 14]]), 'pressure: Q1 authors the wardIncidentFlash on [7,14]');
+    ok(!s.drovProtectedTile, 'pressure: the pressure channel never drives the authored tile [7,14]');
+    ok(s.droveOtherTiles, 'pressure: the pressure channel still flashes its other tiles');
+    ok(page._errors.length === 0, 'pressure scrub/cadence: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 6: RENDER-ONLY + VALIDATOR + PLAYBACK ---------------- */
+  console.log('\nphase 6 render-only / validator:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      paused = true;
+
+      /* 9. no stat leakage: a full quarter with pressure on then off must leave
+         committed and outcome stats byte-identical - pressure stays render-only. */
+      function runQuarter(pressureOn) {
+        document.getElementById('ckPressure').checked = pressureOn;
+        seekSimulation(0);
+        for (let t = 0; t <= QLEN; t += 0.5) { clock = t; render(); }
+        return {
+          stats: JSON.stringify(GAME.stats),
+          end: JSON.stringify(getTimeline().outcome.endStats)
+        };
+      }
+      const withPressure = runQuarter(true);
+      const withoutPressure = runQuarter(false);
+      document.getElementById('ckPressure').checked = true;
+
+      /* 10. validator clean for all four quarters + timeline self-test. */
+      let validatorClean = true;
+      QUARTER_EVENT_IDS.forEach(id => {
+        setCurrentQuarter(id);
+        setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter(id));
+        if (getTimeline().validationErrors.length !== 0) validatorClean = false;
+      });
+      setCurrentQuarter('Q1');
+      setTimelineForCurrentQuarter(getPlaybackOutcomeForQuarter('Q1'));
+      const selfTest = runTimelineSelfTest().failures.length;
+
+      /* the compiled Q1 timeline carries exactly one render-only pressure cue */
+      const pressureCues = getTimelineVisualEvents().filter(e => e.type === 'metricPressure');
+      const cueHasEffects = pressureCues.some(c => c.effects !== undefined);
+
+      return {
+        statsMatch: withPressure.stats === withoutPressure.stats,
+        endMatch: withPressure.end === withoutPressure.end,
+        validatorClean, selfTest,
+        pressureCueCount: pressureCues.length, cueHasEffects
+      };
+    });
+
+    ok(s.statsMatch, 'pressure: committed GAME.stats identical with pressure on and off');
+    ok(s.endMatch, 'pressure: outcome.endStats identical with pressure on and off');
+    ok(s.validatorClean, 'pressure: timeline validator is clean for all four quarters');
+    eq(s.selfTest, 0, 'pressure: timeline self-test reports zero errors');
+    eq(s.pressureCueCount, 1, 'pressure: the quarter carries exactly one metricPressure cue');
+    ok(!s.cueHasEffects, 'pressure: the metricPressure cue carries no effects (render-only)');
+
+    /* 11. no console errors across a full Q1 playback with pressure enabled. */
+    await page.evaluate(() => {
+      document.getElementById('ckPressure').checked = true;
+      seekSimulation(0);
+      for (let t = 0; t <= QLEN; t += 0.25) { clock = t; render(); }
+    });
+    ok(page._errors.length === 0, 'pressure: no console/page errors across a full Q1 playback');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

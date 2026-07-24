@@ -158,14 +158,6 @@ function getObjectiveLiveStatus(obj, history, startStats, currentStats){
   return _objStatusFrom(obj, history, startStats, currentStats);
 }
 
-/* Status of an objective at a HYPOTHETICAL position (committed history + one
-   un-committed option's projected stats), for the board-pack option pips.
-   Unlike the live status it does not blanket pre-Q1 to ON TRACK - it scores the
-   projected position so the pips are informative on the very first quarter. */
-function getObjectiveProjectedStatus(obj, history, startStats, projectedStats){
-  return _objStatusFrom(obj, history, startStats, projectedStats);
-}
-
 /* Year-end score verdict for a weighted 0..100 score. */
 function getObjectiveVerdict(score){
   if(score>=90) return 'EXCEEDED';

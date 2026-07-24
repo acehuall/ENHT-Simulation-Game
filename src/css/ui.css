@@ -267,14 +267,29 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-issue-title{font-size:24px !important; margin:2px 0 4px;}
 #repIssueChart{width:100%; height:auto; border:2px solid #141b30; image-rendering:auto;}
 .rep-risk{border:2px solid #c23434; background:#f4dcdc; color:#8c2222; padding:8px; font-weight:bold;}
-.rep-options{display:grid; grid-template-columns:1fr 1fr; gap:10px; flex:1;}
+/* Options page: equal-height cards in a 2x2 grid. Uniform height (rows stretch
+   by default) stops the eye jumping; generous gap/padding does the de-crowding
+   the redesign asks for. Each card is now four fields only - title, summary,
+   cost, trade-off - with no projected-outcome content. */
+.rep-options{display:grid; grid-template-columns:1fr 1fr; gap:18px; flex:1; align-items:stretch;}
 .rep-option{
-  border:2px solid #141b30; background:#f5f7fb; color:#1a2236; padding:10px;
-  text-align:left; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; gap:7px;
+  border:2px solid #141b30; background:#f5f7fb; color:#1a2236; padding:16px 18px;
+  text-align:left; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; gap:12px;
 }
 .rep-option:hover,.rep-option.selected{border-color:#23c4b4; box-shadow:inset 0 0 0 2px #23c4b4;}
+.rep-option:focus-visible{outline:3px solid #141b30; outline-offset:2px;}
 .rep-option h4{padding-right:0; margin:0;}
-.rep-procon{display:grid; grid-template-columns:1fr 1fr; gap:3px 8px; font-size:10px; line-height:1.35;}
+.rep-option-summary{font-size:12px; line-height:1.45; color:#2a3550; margin:0;}
+.rep-option-cost{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  border-top:1px solid #c3cbdc; border-bottom:1px solid #c3cbdc; padding:8px 0;
+}
+.rep-cost-label{font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#4a5470;}
+.rep-cost-value{font-weight:bold; font-size:16px;}
+.rep-cost-value.spend{color:var(--fin-expenditure);}
+.rep-cost-value.neutral{color:#4a5470;}
+/* Trade-off sits at the card foot so cards read consistently top-to-bottom. */
+.rep-option-tradeoff{margin-top:auto; font-size:11px; line-height:1.45; color:#42557a; font-style:italic;}
 .rep-chips{display:flex; flex-wrap:wrap; gap:5px; margin-top:auto;}
 .rep-chips i{
   font-style:normal; border:1px solid #141b30; background:#e2e7f2; padding:3px 6px;
@@ -283,19 +298,6 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-root .good{color:#1e8f4e;}
 .rep-root .bad{color:#c23434;}
 .rep-root .flat{color:#4a5470;}
-
-/* Per-role objective pips on the options page (phase 4). Reuse the band-{tone}
-   contract with paper-legible inks (same values as rep-perf-cell). */
-.rep-pips{display:flex; flex-wrap:wrap; gap:5px; margin-top:6px;}
-.rep-pip{
-  font-style:normal; border:1px solid #c3cbdc; background:#eef2f8; padding:3px 6px;
-  font-size:9px; font-weight:bold; letter-spacing:.5px;
-}
-.rep-pip.band-critical{color:var(--critical); border-color:#e0a9a9;}
-.rep-pip.band-warn{color:#b07d10; border-color:#e6cf94;}
-.rep-pip.band-neutral{color:#1a2236;}
-.rep-pip.band-good{color:#1e8f4e; border-color:#a9d8bb;}
-.rep-pip.band-great{color:#0f8f82;}
 .rep-outcome{border:2px solid #23c4b4; background:#e9f6f4; padding:10px; margin-top:10px;}
 
 /* ---------- Performance Analysis page (phase 3) ---------- */
@@ -321,7 +323,33 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-perf-table th,.rep-perf-table td{border:1px solid #c3cbdc; padding:6px 8px; text-align:right;}
 .rep-perf-table th{background:#eef2f8; color:#4a5470; letter-spacing:1px; text-transform:uppercase; font-size:10px;}
 .rep-perf-table td:first-child,.rep-perf-table th:first-child{text-align:left;}
-.rep-perf-surplus td{border-top:3px solid #141b30; font-weight:bold; background:#eef2f8;}
+
+/* ---- Income vs Expenditure split (finance tab + board pack) ----
+   The distinction is carried three independent ways so removing any one still
+   reads: COLOUR (fin-income / fin-expenditure hues), SIGN (expenditure figures
+   render with an explicit minus in the view layer), and LAYOUT (labelled
+   sub-head rows, a rule between the blocks, and a dominant net line below). */
+.rep-fin-subhead td{
+  text-align:left; font-weight:bold; font-size:10px; letter-spacing:1px;
+  text-transform:uppercase; background:#eef2f8; padding:7px 8px;
+}
+.rep-fin-subhead.fin-income td{color:var(--fin-income); border-left:4px solid var(--fin-income);}
+/* The visible break between the two blocks. */
+.rep-fin-subhead.fin-expenditure td{
+  color:var(--fin-expenditure); border-left:4px solid var(--fin-expenditure);
+  border-top:3px solid #141b30;
+}
+.rep-fin-line.fin-income td:nth-child(2),.rep-fin-line.fin-income td:nth-child(3){color:var(--fin-income);}
+.rep-fin-line.fin-expenditure td:nth-child(2),.rep-fin-line.fin-expenditure td:nth-child(3){color:var(--fin-expenditure);}
+/* Net position: the figure the board acts on, so it dominates. */
+.rep-fin-net td{border-top:3px solid #141b30; background:#141b30; color:#e8ecf5; padding:10px 8px;}
+.rep-fin-net td:first-child{font-weight:bold; letter-spacing:1px; text-transform:uppercase;}
+.rep-fin-net .rep-perf-cell{font-weight:bold; font-size:18px;}
+.rep-fin-net .rep-perf-cell.band-critical{color:#ff9a9a;}
+.rep-fin-net .rep-perf-cell.band-warn{color:#f0c96a;}
+.rep-fin-net .rep-perf-cell.band-neutral{color:#e8ecf5;}
+.rep-fin-net .rep-perf-cell.band-good{color:#7fe0a0;}
+.rep-fin-net .rep-perf-cell.band-great{color:#5fe6d8;}
 
 .rep-perf-list{display:flex; flex-direction:column; gap:6px;}
 .rep-perf-row{display:flex; align-items:baseline; gap:10px; background:#eef2f8; border:1px solid #c3cbdc; padding:7px 9px;}

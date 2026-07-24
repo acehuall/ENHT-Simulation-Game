@@ -25,6 +25,8 @@ var QUARTERS = [
         title:'Hire Temporary Staff',
         description:'Hire temporary agency staff to cover sickness and stabilise ward staffing.',
         effects:{budget:-2.2, waiting:-9, patsat:+4, morale:+5, safety:+7, rep:+2},
+        cost:2.2,
+        tradeoff:'Protects safe staffing at the expense of financial headroom.',
         pros:['Fast to mobilise','Protects safe staffing'],
         cons:['Agency premium is costly','Can irritate substantive staff'],
         decisionSummary:'Temporary staff protected safety and flow, but created a major financial pressure.'
@@ -35,6 +37,8 @@ var QUARTERS = [
         title:'Slow Non-Essential Care',
         description:'Pause lower-priority activity so staff and beds can be moved to urgent pressure.',
         effects:{budget:+0.5, waiting:+13, patsat:-4, morale:+2, safety:-2, rep:-6},
+        cost:0,
+        tradeoff:'Frees beds now at the expense of the waiting list and public confidence.',
         pros:['Frees beds immediately','Almost cost neutral'],
         cons:['Waiting list grows','Reputational damage'],
         decisionSummary:'Urgent care stabilised, but elective waits and public confidence worsened.'
@@ -45,6 +49,8 @@ var QUARTERS = [
         title:'Rapid Discharge',
         description:'Accelerate discharge planning to free beds faster.',
         effects:{budget:+0.2, waiting:-6, patsat:-4, morale:-5, safety:-15, rep:-3},
+        cost:0,
+        tradeoff:'Buys bed capacity fast at the expense of ward safety.',
         pros:['Creates bed capacity quickly','Low direct cost'],
         cons:['Pressure shifts to wards','Discharge risk rises'],
         decisionSummary:'Beds were freed quickly, but pressure moved onto wards and discharge teams.'
@@ -55,6 +61,8 @@ var QUARTERS = [
         title:'Divert to Other Trusts',
         description:'Divert some ambulance flow to neighbouring trusts during the peak.',
         effects:{budget:-1.0, waiting:-8, patsat:-2, morale:+4, safety:+3, rep:-4},
+        cost:1.0,
+        tradeoff:'Eases on-site pressure at the expense of regional standing.',
         pros:['Reduces immediate site pressure','Protects safety on site'],
         cons:['Depends on neighbours','Reputation hit with region'],
         decisionSummary:'Internal pressure reduced, but the trust relied visibly on neighbouring hospitals.'
@@ -85,6 +93,8 @@ var QUARTERS = [
         title:'Open Escalation Ward',
         description:'Open 18 escalation beds in the old day unit.',
         effects:{budget:-2.2, waiting:-12, patsat:+3, morale:-6, safety:-6, rep:+1},
+        cost:2.2,
+        tradeoff:'Adds real capacity at the expense of stretched staff and morale.',
         pros:['Real extra capacity','Cuts corridor care'],
         cons:['Stretches staff','Adds direct cost'],
         decisionSummary:'Extra beds improved flow, but thin staffing hurt morale and safety confidence.'
@@ -95,6 +105,8 @@ var QUARTERS = [
         title:'Expand Virtual Ward',
         description:'Move suitable patients home with remote monitoring and rapid response support.',
         effects:{budget:-0.9, waiting:-8, patsat:+5, morale:+4, safety:+3, rep:+3},
+        cost:0.9,
+        tradeoff:'Improves flow and patient experience at a moderate, contained cost.',
         pros:['Patients recover at home','Moderate cost'],
         cons:['Needs clinical oversight','Not suitable for every patient'],
         decisionSummary:'The virtual ward reduced bed pressure and improved patient experience.'
@@ -105,6 +117,8 @@ var QUARTERS = [
         title:'Cancel Electives',
         description:'Cancel routine elective work for four weeks to release beds and theatre staff.',
         effects:{budget:+0.6, waiting:+14, patsat:-6, morale:+1, safety:-3, rep:-7},
+        cost:0,
+        tradeoff:'Releases beds fast at the expense of waiting performance and reputation.',
         pros:['Rapid capacity release','Low immediate spend'],
         cons:['Waiting list damage','Public criticism'],
         decisionSummary:'Cancelling electives created space quickly, but waiting performance and reputation suffered.'
@@ -115,6 +129,8 @@ var QUARTERS = [
         title:'Fund Discharge Partnership',
         description:'Fund extra social care brokerage and transport to unblock medically fit patients.',
         effects:{budget:-1.1, waiting:-9, patsat:+3, morale:+3, safety:+4, rep:+2},
+        cost:1.1,
+        tradeoff:'Tackles the root cause, but the benefit builds slowly over weeks.',
         pros:['Tackles root cause','Supports wards'],
         cons:['Requires partners','Benefits build over weeks'],
         decisionSummary:'Partnership funding improved discharge flow and reduced ward frustration.'
@@ -145,6 +161,8 @@ var QUARTERS = [
         title:'Hold Press Briefing',
         description:'Hold a short briefing with clear facts, apologies and next steps.',
         effects:{budget:0, waiting:0, patsat:+2, morale:+3, safety:0, rep:+9},
+        cost:0,
+        tradeoff:'Rebuilds public trust at the expense of exposure to scrutiny.',
         pros:['Transparent','Supports staff confidence'],
         cons:['Public scrutiny','Needs careful messaging'],
         decisionSummary:'The briefing improved confidence because it acknowledged pressure and named credible actions.'
@@ -155,6 +173,8 @@ var QUARTERS = [
         title:'Publish Recovery Plan',
         description:'Publish a measurable recovery plan and weekly performance update.',
         effects:{budget:-0.5, waiting:-3, patsat:+3, morale:+2, safety:+2, rep:+6},
+        cost:0.5,
+        tradeoff:'Converts criticism into commitments at the expense of delivery pressure.',
         pros:['Turns criticism into action','Gives measurable commitments'],
         cons:['Creates delivery pressure','Small support cost'],
         decisionSummary:'The recovery plan rebuilt some confidence and gave managers a clearer operating rhythm.'
@@ -165,6 +185,8 @@ var QUARTERS = [
         title:'Restrict Media Access',
         description:'Limit filming around the entrance and route all requests through communications.',
         effects:{budget:0, waiting:+1, patsat:-3, morale:-3, safety:-3, rep:-8},
+        cost:0,
+        tradeoff:'Reduces disruption at the expense of looking defensive.',
         pros:['Limits media intrusion','Reduces disruption'],
         cons:['Looks defensive','Frustrates journalists'],
         decisionSummary:'Restricting access reduced disruption, but the trust looked defensive in the coverage.'
@@ -175,6 +197,8 @@ var QUARTERS = [
         title:'No Comment',
         description:'Decline interviews until operational pressure has eased.',
         effects:{budget:+0.2, waiting:+2, patsat:-4, morale:-6, safety:-7, rep:-11},
+        cost:0,
+        tradeoff:'Avoids a live mistake at the expense of controlling the story.',
         pros:['Avoids live mistake','No direct cost'],
         cons:['Narrative runs without the trust','Staff feel exposed'],
         decisionSummary:'The trust avoided a difficult interview but lost control of the public story.'
@@ -205,6 +229,8 @@ var QUARTERS = [
         title:'Fund Staff Wellbeing',
         description:'Fund rest spaces, hot food, transport support and extra clinical supervision.',
         effects:{budget:-1.9, waiting:0, patsat:+2, morale:+8, safety:+5, rep:+2},
+        cost:1.9,
+        tradeoff:'Protects morale and resilience at the expense of budget.',
         pros:['Protects morale','Reduces fatigue risk'],
         cons:['Costs money','Flow impact is indirect'],
         decisionSummary:'Staff support reduced fatigue and improved morale during the surge.'
@@ -215,6 +241,8 @@ var QUARTERS = [
         title:'Expand Discharge Lounge',
         description:'Extend discharge lounge hours and transport support through the cold snap.',
         effects:{budget:-1.0, waiting:-9, patsat:+3, morale:+2, safety:+3, rep:+2},
+        cost:1.0,
+        tradeoff:'Improves flow with visible action at a moderate cost.',
         pros:['Improves flow','Visible practical action'],
         cons:['Needs staffing','Moderate cost'],
         decisionSummary:'The discharge lounge extension improved flow and reduced bed pressure.'
@@ -225,6 +253,8 @@ var QUARTERS = [
         title:'Request Mutual Aid',
         description:'Ask neighbouring trusts and community partners for short-term surge support.',
         effects:{budget:-0.3, waiting:-5, patsat:-2, morale:+2, safety:+2, rep:-3},
+        cost:0.3,
+        tradeoff:'Protects safety at the expense of appearing dependent on partners.',
         pros:['Protects safety','Lower direct spend'],
         cons:['Depends on partners','Reputation cost'],
         decisionSummary:'Mutual aid helped safety, but the trust looked dependent on regional support.'
@@ -235,6 +265,8 @@ var QUARTERS = [
         title:'Defer Capital Spend',
         description:'Defer non-urgent capital spending to fund temporary winter resilience.',
         effects:{budget:+1.0, waiting:-2, patsat:-1, morale:-4, safety:-13, rep:-3},
+        cost:0,
+        tradeoff:'Protects revenue now at the expense of estates and equipment risk.',
         pros:['Protects revenue budget','Funds short-term pressure'],
         cons:['Lets estates and equipment risk build','Signals financial strain'],
         decisionSummary:'Deferring capital protected the immediate position, but ageing estates and equipment let safety risk build through the year.'

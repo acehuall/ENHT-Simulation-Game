@@ -51,6 +51,27 @@ async function freshPage(browser) {
 
 const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.length);
 
+/* Drive a fresh page all the way to the Year End Report through the real
+   completion path: commit Q1-Q3, then take Q4 through the board pack so
+   goToNextReportQuarter() fires the 'year-complete' branch that opens the
+   overlay. `roles` (or null) is the board to score. */
+async function driveToYearEnd(page, roles) {
+  await page.evaluate((roleIds) => {
+    resetGameState();
+    if (roleIds) setBoardRoles(roleIds);
+    for (let i = 0; i < 3; i++) {
+      quarterComplete = true;
+      const q = getCurrentQuarterId();
+      confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+      advanceAfterDecision(q);
+    }
+    quarterComplete = true;
+    openReport();
+    _chooseReportOption(0);        // records the Q4 decision
+    goToNextReportQuarter();       // 'year-complete' -> closeReport + openYearEnd
+  }, roles || null);
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: resolveChromium() });
 
@@ -806,7 +827,7 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
       let maxErr = 0, maxErrOverride = 0;
       REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
       const overrideCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
-      for (let b = -5; b <= 2.00001; b += 0.1) {
+      for (let b = -8; b <= 2.00001; b += 0.1) {
         const budget = Math.round(b * 10) / 10;
         const stats = Object.assign(initialMetricStats(), { budget });
         maxErr = Math.max(maxErr, Math.abs(deriveIncomeExpenditure(stats, null).surplus - budget));
@@ -1399,6 +1420,599 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     const clean = await page.evaluate(() => runTimelineSelfTest().failures.length);
     eq(clean, 0, 'timeline: self-test remains clean after phase 4');
     ok(page._errors.length === 0, 'timeline self-test: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: CQC RATING MODEL ---------------- */
+  console.log('\nphase 5 rating model:');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      const clone = ch => Object.assign(initialMetricStats(), ch || {});
+
+      /* 1: waiting flips; 20 <-> 80 across its 0..100 range. */
+      const waiting20 = toRatingSpace('waiting', 20);
+      const waiting80 = toRatingSpace('waiting', 80);
+
+      /* 2: every goodUp:true metric is unchanged by the flip. */
+      let goodUpIdentity = true;
+      METRIC_DEFS.forEach(def => {
+        if (def.goodUp !== false) {
+          [def.min, def.start, def.max].forEach(v => {
+            if (toRatingSpace(def.key, v) !== v) goodUpIdentity = false;
+          });
+        }
+      });
+
+      /* 3: lower waiting scores higher (the inversion, end to end). */
+      const lowWaitScore = computeTrustRating(clone({ waiting: 20 })).score;
+      const highWaitScore = computeTrustRating(clone({ waiting: 80 })).score;
+
+      /* 4: core_stat_low fires for high (bad) waiting, not for low (good). */
+      const caps80 = getRatingCaps(clone({ waiting: 80 }));
+      const caps20 = getRatingCaps(clone({ waiting: 20 }));
+      const coreFires80 = caps80.some(c => c.cap.id === 'core_stat_low' && c.evidenceKey === 'waiting');
+      const coreFires20 = caps20.some(c => c.cap.id === 'core_stat_low');
+
+      /* 5: the starting position scores 56.1, band good. */
+      const start = computeTrustRating(initialMetricStats());
+
+      /* 6: weights sum to exactly 1.00. */
+      let weightSum = 0;
+      Object.keys(RATING_MODEL.weights).forEach(k => { weightSum += RATING_MODEL.weights[k]; });
+
+      /* 7: budget is not a weighted term. */
+      const budgetInBreakdown = start.breakdown.some(r => r.key === 'budget');
+
+      /* 8: budget adjustment thresholds. */
+      const surplus = getRatingBudgetAdjustment(clone({ budget: 1.5 })).amount;
+      const deficit = getRatingBudgetAdjustment(clone({ budget: -3.5 })).amount;
+      const between = getRatingBudgetAdjustment(clone({ budget: -1.0 })).amount;
+
+      /* 9: safety 29, everything else at its best -> inadequate (cap dominates). */
+      const safetyBreach = computeTrustRating({ budget: 2, waiting: 0, patsat: 100, morale: 100, safety: 29, rep: 100 });
+
+      /* 10: an index metric at rating-space 24 caps to requires on a high base. */
+      const coreCap = computeTrustRating({ budget: 0, waiting: 0, patsat: 24, morale: 100, safety: 100, rep: 100 });
+
+      /* 11: budget -6.5 caps to requires on a high base. */
+      const deficitCap = computeTrustRating({ budget: -6.5, waiting: 0, patsat: 100, morale: 100, safety: 100, rep: 100 });
+
+      /* 12: a cap never raises - safety 29 on an already-inadequate base stays inadequate. */
+      const capNoRaise = computeTrustRating({ budget: 0, waiting: 100, patsat: 0, morale: 0, safety: 29, rep: 0 });
+
+      /* 13: the waiting breakdown row exposes both columns. */
+      const waitRow = start.breakdown.find(r => r.key === 'waiting');
+
+      return {
+        waiting20, waiting80, goodUpIdentity,
+        lowWaitScore, highWaitScore,
+        coreFires80, coreFires20,
+        startBase: start.baseScore, startBand: start.band.id,
+        weightSum, budgetInBreakdown,
+        surplus, deficit, between,
+        safetyBreachBand: safetyBreach.band.id,
+        coreCapBand: coreCap.band.id, coreCapFrom: coreCap.cappedFrom && coreCap.cappedFrom.id,
+        deficitCapBand: deficitCap.band.id,
+        capNoRaiseBand: capNoRaise.band.id,
+        waitRow
+      };
+    });
+
+    eq(s.waiting20, 80, 'rating: toRatingSpace flips waiting 20 -> 80');
+    eq(s.waiting80, 20, 'rating: toRatingSpace flips waiting 80 -> 20');
+    ok(s.goodUpIdentity, 'rating: goodUp:true metrics pass through toRatingSpace unchanged');
+    ok(s.lowWaitScore > s.highWaitScore, 'rating: lower (better) waiting scores higher than high waiting');
+    ok(s.coreFires80, 'rating: core_stat_low fires for waiting 80 (rating space 20)');
+    ok(!s.coreFires20, 'rating: core_stat_low does not fire for waiting 20 (rating space 80)');
+    ok(Math.abs(s.startBase - 56.1) < 1e-9, 'rating: starting stats score 56.1 (expected 56.1, got ' + s.startBase + ')');
+    eq(s.startBand, 'good', 'rating: starting stats land in the GOOD band under the rebased bands');
+    ok(Math.abs(s.weightSum - 1.0) < 1e-9, 'rating: the five weights sum to exactly 1.00');
+    ok(!s.budgetInBreakdown, 'rating: budget is absent from the weighted breakdown');
+    eq(s.surplus, 5, 'rating: a surplus >= +£1.0m adds 5');
+    eq(s.deficit, -10, 'rating: a deficit <= -£3.0m subtracts 10');
+    eq(s.between, 0, 'rating: a budget between the thresholds adjusts by 0');
+    eq(s.safetyBreachBand, 'inadequate', 'rating: safety 29 forces inadequate even at an otherwise-outstanding base');
+    eq(s.coreCapBand, 'requires', 'rating: an index metric at rating-space 24 caps to requires on a high base');
+    eq(s.coreCapFrom, 'outstanding', 'rating: the core cap records the pre-cap band it lowered from');
+    eq(s.deficitCapBand, 'requires', 'rating: budget -6.5 caps to requires on a high base');
+    eq(s.capNoRaiseBand, 'inadequate', 'rating: a cap never raises an already-inadequate rating to requires');
+    eq(s.waitRow.inverted, true, 'rating: the waiting breakdown row is marked inverted');
+    eq(s.waitRow.value, 68, 'rating: the waiting breakdown row carries the raw metric value');
+    eq(s.waitRow.ratingValue, 32, 'rating: the waiting breakdown row carries the flipped rating value');
+    ok(page._errors.length === 0, 'rating model: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: EXHAUSTIVE 256-PATH REACHABILITY ---------------- */
+  console.log('\nphase 5 reachability (all 256 paths):');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      const bandCount = { outstanding: 0, good: 0, requires: 0, inadequate: 0 };
+      const capReach = { core_stat_low: 0, safety_breach: 0, deficit_severe: 0 };
+      const adjReach = { plus5: 0, minus10: 0, zero: 0 };
+      const example = {};                 // first path found for each rating
+      let min = Infinity, max = -Infinity, minPath = null, maxPath = null, n = 0;
+
+      function rec(qi, stats, ids) {
+        if (qi === QUARTERS.length) {
+          n++;
+          const rt = computeTrustRating(stats);
+          bandCount[rt.band.id] = (bandCount[rt.band.id] || 0) + 1;
+          if (!example[rt.band.id]) example[rt.band.id] = ids.join('');
+          rt.caps.forEach(c => { if (capReach[c.cap.id] != null) capReach[c.cap.id]++; });
+          if (rt.adjustment.amount > 0) adjReach.plus5++;
+          else if (rt.adjustment.amount < 0) adjReach.minus10++;
+          else adjReach.zero++;
+          if (rt.score < min) { min = rt.score; minPath = ids.join(''); }
+          if (rt.score > max) { max = rt.score; maxPath = ids.join(''); }
+          return;
+        }
+        const opts = QUARTERS[qi].options;
+        for (let o = 0; o < opts.length; o++) {
+          rec(qi + 1, applyMetricEffects(stats, opts[o].effects), ids.concat(opts[o].label));
+        }
+      }
+      rec(0, initialMetricStats(), []);
+      return { n, min: +min.toFixed(1), max: +max.toFixed(1), minPath, maxPath, bandCount, capReach, adjReach, example };
+    });
+
+    /* Record the calibration for the log (the user asked these be recorded). */
+    console.log('    paths: ' + s.n);
+    console.log('    score range: ' + s.min + ' (' + s.minPath + ')  ..  ' + s.max + ' (' + s.maxPath + ')');
+    console.log('    paths per rating: ' + JSON.stringify(s.bandCount));
+    console.log('    cap reachability: ' + JSON.stringify(s.capReach));
+    console.log('    budget adjustment reachability: ' + JSON.stringify(s.adjReach));
+    console.log('    example path per rating: ' + JSON.stringify(s.example));
+
+    eq(s.n, 256, 'reachability: every one of the 256 legal decision paths is enumerated');
+
+    /* Every advertised rating is intentionally reachable (>=1 path each). */
+    ok(s.bandCount.outstanding >= 1, 'reachability: OUTSTANDING is reachable (' + s.bandCount.outstanding + ' paths)');
+    ok(s.bandCount.good >= 1, 'reachability: GOOD is reachable (' + s.bandCount.good + ' paths)');
+    ok(s.bandCount.requires >= 1, 'reachability: REQUIRES IMPROVEMENT is reachable (' + s.bandCount.requires + ' paths)');
+    ok(s.bandCount.inadequate >= 1, 'reachability: INADEQUATE is reachable (' + s.bandCount.inadequate + ' paths)');
+
+    /* Every cap is reachable - none is dead (the -£6m cap was impossible before
+       the budget range was widened). */
+    ok(s.capReach.core_stat_low >= 1, 'reachability: the core-stat-low cap fires on some path (' + s.capReach.core_stat_low + ')');
+    ok(s.capReach.safety_breach >= 1, 'reachability: the safety-breach cap fires on some path (' + s.capReach.safety_breach + ')');
+    ok(s.capReach.deficit_severe >= 1, 'reachability: the -£6m deficit cap fires on some path (' + s.capReach.deficit_severe + ')');
+
+    /* Both budget adjustments are reachable. */
+    ok(s.adjReach.plus5 >= 1, 'reachability: the +£1m surplus adjustment is reachable (' + s.adjReach.plus5 + ')');
+    ok(s.adjReach.minus10 >= 1, 'reachability: the -£3m deficit adjustment is reachable (' + s.adjReach.minus10 + ')');
+
+    /* At least one concrete example path exists for each intended rating. */
+    ok(!!(s.example.outstanding && s.example.good && s.example.requires && s.example.inadequate),
+      'reachability: a concrete example path exists for every rating');
+
+    /* The spread is genuinely wide (guards against a future edit collapsing the
+       game back toward a single band). */
+    ok((s.max - s.min) >= 25, 'reachability: the score spread across all paths is at least 25 wide (' + (s.max - s.min).toFixed(1) + ')');
+    ok(s.max >= 64, 'reachability: the best path clears the OUTSTANDING boundary');
+    ok(s.min < 50, 'reachability: the worst path falls below GOOD');
+
+    ok(page._errors.length === 0, 'reachability: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: SECOND COMPLETE GAME AFTER startNewGame ---------------- */
+  console.log('\nphase 5 second game after reset:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    /* Complete a full game, reset, complete a second full game - the second
+       year-end must build a valid rating with a clean four-quarter timeline and
+       no state bleeding through from the first. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const first = await page.evaluate(() => ({
+      band: computeTrustRating(GAME.stats).band.id,
+      timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length
+    }));
+    await page.evaluate(() => { closeYearEnd(); startNewGame(); });
+    const afterReset = await page.evaluate(() => ({
+      decisions: GAME.decisions.length,
+      yearEnd: isYearEndOpen()
+    }));
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const second = await page.evaluate(() => {
+      const bands = { outstanding: 1, good: 1, requires: 1, inadequate: 1 };
+      const rt = computeTrustRating(GAME.stats);
+      return {
+        open: isYearEndOpen(),
+        validBand: !!bands[rt.band.id],
+        timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length,
+        decisions: GAME.decisions.length
+      };
+    });
+    eq(first.timeline, 4, 'second game: first run completes with a four-quarter timeline');
+    eq(afterReset.decisions, 0, 'second game: startNewGame clears the first game between runs');
+    ok(!afterReset.yearEnd, 'second game: the first overlay is closed before the second run');
+    ok(second.open, 'second game: the second run opens the year-end overlay');
+    ok(second.validBand, 'second game: the second run computes a valid rating band');
+    eq(second.timeline, 4, 'second game: the second run has its own clean four-quarter timeline');
+    eq(second.decisions, 4, 'second game: exactly four decisions are recorded in the second run');
+    ok(page._errors.length === 0, 'second game: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: NEW GAME RESET ---------------- */
+  console.log('\nphase 5 new game:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+
+    const s = await page.evaluate(() => {
+      /* Commit all four quarters programmatically (no playback needed). */
+      function playFullYear() {
+        for (let i = 0; i < 4; i++) {
+          quarterComplete = true;
+          const qId = getCurrentQuarterId();
+          confirmBoardDecision(qId, getCurrentQuarter().options[0].id);
+          advanceAfterDecision(qId);
+        }
+      }
+
+      setBoardRoles(['cfo', 'md']);
+      playFullYear();
+      const afterRunDecisions = GAME.decisions.length;
+
+      /* Populate the live feed so we can prove it is rebuilt, not accumulated. */
+      seekSimulation(QLEN);
+      render();
+      const feedBefore = document.querySelectorAll('#eventFeedList .feed-entry').length;
+
+      /* Open an overlay so we can prove startNewGame closes it. */
+      openBrief();
+      const briefOpenBefore = !document.getElementById('briefRoot').hidden;
+
+      startNewGame();
+
+      const afterReset = {
+        decisions: GAME.decisions.length,
+        alerts: GAME.alerts.length,
+        stats: JSON.stringify(GAME.stats),
+        initial: JSON.stringify(initialMetricStats()),
+        roles: GAME.roles.slice(),
+        quarter: getCurrentQuarterId(),
+        firstQuarter: getFirstQuarterId(),
+        quarterComplete: quarterComplete,
+        alertQueue: _alertQueue.length,
+        feedAfter: document.querySelectorAll('#eventFeedList .feed-entry').length,
+        briefHidden: document.getElementById('briefRoot').hidden,
+        reportOpen: isReportOpen()
+      };
+
+      /* The brief still lists the preserved board after the reset. */
+      openBrief();
+      const briefCards = document.querySelectorAll('#briefRoot .brief-role').length;
+      closeBrief();
+
+      return { afterRunDecisions, feedBefore, briefOpenBefore, afterReset, briefCards };
+    });
+
+    eq(s.afterRunDecisions, 4, 'new game: a full four-quarter run records four decisions');
+    ok(s.briefOpenBefore, 'new game: an overlay is open before the reset');
+    /* 26 */
+    eq(s.afterReset.decisions, 0, 'new game: startNewGame clears every decision');
+    eq(s.afterReset.alerts, 0, 'new game: startNewGame clears the durable alert record');
+    eq(s.afterReset.stats, s.afterReset.initial, 'new game: startNewGame restores the starting stats');
+    /* 27 */
+    eq(JSON.stringify(s.afterReset.roles), JSON.stringify(['cfo', 'md']), 'new game: the board roles are preserved (option a)');
+    eq(s.briefCards, 2, 'new game: the brief still lists the same roles afterwards');
+    /* 28 */
+    ok(s.afterReset.briefHidden, 'new game: startNewGame closes any open overlay');
+    ok(!s.afterReset.reportOpen, 'new game: the board pack is not left open');
+    eq(s.afterReset.quarter, s.afterReset.firstQuarter, 'new game: the sim returns to the first quarter');
+    ok(!s.afterReset.quarterComplete, 'new game: quarterComplete is cleared');
+    /* 29 */
+    eq(s.afterReset.alertQueue, 0, 'new game: the live alert queue is empty after a reset');
+    ok(s.afterReset.feedAfter >= 1 && s.afterReset.feedAfter < s.feedBefore,
+      'new game: the event feed is rebuilt for the fresh quarter, not accumulated from the prior run');
+    ok(page._errors.length === 0, 'new game: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: PLAIN R IS QUARTER-ONLY ---------------- */
+  console.log('\nphase 5 restart quarter vs new game:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+    /* Commit two quarters, then a plain R must replay only the current quarter
+       and leave the recorded decisions standing. */
+    await page.evaluate(() => {
+      for (let i = 0; i < 2; i++) {
+        quarterComplete = true;
+        const qId = getCurrentQuarterId();
+        confirmBoardDecision(qId, getCurrentQuarter().options[0].id);
+        advanceAfterDecision(qId);
+      }
+      seekSimulation(20);
+      render();
+    });
+    const before = await page.evaluate(() => GAME.decisions.length);
+    await page.keyboard.press('r');            // confirm() is stubbed to true
+    await page.waitForTimeout(150);
+    const after = await page.evaluate(() => ({
+      decisions: GAME.decisions.length,
+      clock: Math.round(clock)
+    }));
+    eq(before, 2, 'restart quarter: two decisions are committed before R');
+    eq(after.decisions, 2, 'restart quarter: plain R does not clear committed decisions');
+    eq(after.clock, 0, 'restart quarter: plain R still resets the quarter clock');
+    ok(page._errors.length === 0, 'restart quarter: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: YEAR END OVERLAY ---------------- */
+  console.log('\nphase 5 year end overlay:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 14: hidden on load. */
+    const hiddenOnLoad = await page.evaluate(() => document.getElementById('yearEndRoot').hidden);
+    ok(hiddenOnLoad, 'year end: overlay is hidden on load');
+
+    /* 15: committing all four decisions and advancing opens it, paused. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const opened = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      paused: paused,
+      reportOpen: isReportOpen(),
+      sections: document.querySelectorAll('#yearEndRoot .ye-section').length,
+      title: document.getElementById('yeTitle').textContent
+    }));
+    ok(opened.open, 'year end: completing the fourth quarter opens the overlay');
+    ok(opened.paused, 'year end: opening the overlay pauses the simulation');
+    ok(!opened.reportOpen, 'year end: the board pack is closed behind the overlay');
+    eq(opened.sections, 5, 'year end: five sections are built');
+    ok(/YEAR END/.test(opened.title), 'year end: a completed year is titled YEAR END REPORT');
+
+    /* 16: Escape closes; scene is boardRoom, paused remains true (no restore). */
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(120);
+    const escaped = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      scene: currentScene,
+      paused: paused
+    }));
+    ok(!escaped.open, 'year end: Escape closes the overlay');
+    eq(escaped.scene, 'boardRoom', 'year end: closing lands on the boardroom');
+    ok(escaped.paused, 'year end: closing stays paused (no prior unpaused state is restored)');
+    ok(page._errors.length === 0, 'year end: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: CLOSE BUTTON + ROLES + INTERIM ---------------- */
+  console.log('\nphase 5 year end sections:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 18: one scorecard per selected role. */
+    await driveToYearEnd(page, ['cfo', 'md', 'coo']);
+    const withRoles = await page.evaluate(() => ({
+      cards: document.querySelectorAll('#yearEndRoot .ye-card').length,
+      timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length,
+      stamp: document.querySelector('#yearEndRoot .ye-stamp').textContent.trim()
+    }));
+    eq(withRoles.cards, 3, 'year end: one scorecard renders per selected role');
+    eq(withRoles.timeline, 4, 'year end: the decision timeline lists four committed quarters');
+    ok(withRoles.stamp.length > 0, 'year end: a rating stamp is rendered');
+
+    /* 17: Close button lands on the boardroom and the board pack is not behind it. */
+    await page.click('#yearEndRoot .ye-close');
+    await page.waitForTimeout(120);
+    const closed = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      scene: currentScene,
+      reportVisible: !document.getElementById('repRoot').hidden
+    }));
+    ok(!closed.open, 'year end: the Close button hides the overlay');
+    eq(closed.scene, 'boardRoom', 'year end: Close lands on the boardroom');
+    ok(!closed.reportVisible, 'year end: the board pack is not visible behind the closed overlay');
+
+    /* 19: no roles (skipintro default) - opens without throwing, shows the line. */
+    await driveToYearEnd(page, null);
+    const noRoles = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      cards: document.querySelectorAll('#yearEndRoot .ye-card').length,
+      hasLine: /No board was assembled/.test(document.getElementById('yearEndRoot').textContent)
+    }));
+    ok(noRoles.open, 'year end: opens without throwing when no roles were selected');
+    eq(noRoles.cards, 0, 'year end: no scorecards render for an empty board');
+    ok(noRoles.hasLine, 'year end: the empty board shows the explanatory no-roles line');
+    await page.evaluate(() => closeYearEnd());
+
+    /* 20: opening via Y mid-game labels the report interim. */
+    await page.evaluate(() => { resetGameState(); });
+    await page.keyboard.press('y');
+    await page.waitForTimeout(120);
+    const interim = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      title: document.getElementById('yeTitle').textContent,
+      provisional: /PROVISIONAL/.test(document.getElementById('yearEndRoot').textContent)
+    }));
+    ok(interim.open, 'year end: Y opens the report mid-game');
+    ok(/INTERIM/.test(interim.title), 'year end: a mid-game report is labelled INTERIM');
+    ok(interim.provisional, 'year end: a mid-game rating is marked provisional');
+    await page.evaluate(() => closeYearEnd());
+
+    ok(page._errors.length === 0, 'year end sections: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: FLOOR LATCH ON THE SCORECARD + REBUILD ---------------- */
+  console.log('\nphase 5 year end latch + rebuild:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 21: a floor breached in Q2 and recovered by Q4 still reads FAIL. */
+    const latch = await page.evaluate(() => {
+      resetGameState();
+      setBoardRoles(['md']);          // md_safety_floor: hold safety >= 64 every quarter
+      function outcome(qId, endChanges) {
+        const s = initialMetricStats();
+        const e = Object.assign({}, s, endChanges || {});
+        return { quarterId: qId, optionId: 't', optionTitle: 'T', decisionSummary: 'd', startStats: s, endStats: e, effects: {} };
+      }
+      applyBoardDecision(outcome('Q1', { safety: 66 }));
+      applyBoardDecision(outcome('Q2', { safety: 60 }));   // breach the 64 floor
+      applyBoardDecision(outcome('Q3', { safety: 63 }));
+      applyBoardDecision(outcome('Q4', { safety: 70 }));   // recovered by year end
+      openYearEnd();
+      const objs = Array.from(document.querySelectorAll('#yearEndRoot .ye-obj'));
+      const floorObj = objs.find(o => /concern line/.test(o.textContent));
+      const res = {
+        found: !!floorObj,
+        failClass: floorObj ? floorObj.className.indexOf('ye-obj-fail') >= 0 : null,
+        tick: floorObj ? floorObj.querySelector('.ye-tick').textContent : null
+      };
+      closeYearEnd();
+      return res;
+    });
+    ok(latch.found, 'year end: the latched safety floor objective is rendered');
+    ok(latch.failClass, 'year end: a floor breached in Q2 and recovered by Q4 still reads fail on the scorecard');
+    ok(/FAIL/.test(latch.tick), 'year end: the latched objective shows a FAIL tick');
+
+    /* 22: opening twice produces exactly one modal. */
+    const modals = await page.evaluate(() => {
+      openYearEnd();
+      openYearEnd();
+      const n = document.querySelectorAll('#yearEndRoot .ye-modal').length;
+      closeYearEnd();
+      return n;
+    });
+    eq(modals, 1, 'year end: opening the overlay twice produces exactly one modal');
+    ok(page._errors.length === 0, 'year end latch + rebuild: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: HOTKEY SUPPRESSION ---------------- */
+  console.log('\nphase 5 year end hotkeys:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    await driveToYearEnd(page, ['cfo', 'md']);
+
+    /* 23: S/P/R/F/B are all inert while the report owns the screen. */
+    const pre = await page.evaluate(() => ({ clock: Math.round(clock), complete: quarterComplete }));
+    for (const k of ['s', 'p', 'r', 'f', 'b']) await page.keyboard.press(k);
+    await page.waitForTimeout(120);
+    const suppressed = await page.evaluate(() => ({
+      yearEnd: isYearEndOpen(),
+      paused: paused,
+      facil: !document.getElementById('facilRoot').hidden,
+      brief: !document.getElementById('briefRoot').hidden,
+      clock: Math.round(clock),
+      complete: quarterComplete
+    }));
+    ok(suppressed.yearEnd, 'year end: the overlay stays open through S/P/R/F/B');
+    ok(suppressed.paused, 'year end: P does not unpause behind the overlay');
+    ok(!suppressed.facil, 'year end: F does not open the facilitator notes over the report');
+    ok(!suppressed.brief, 'year end: B does not open the brief over the report');
+    eq(suppressed.clock, pre.clock, 'year end: S does not advance the sim behind the overlay');
+    eq(suppressed.complete, pre.complete, 'year end: R does not reset state behind the overlay');
+
+    /* 24: Y closes it. */
+    await page.keyboard.press('y');
+    await page.waitForTimeout(120);
+    ok(await page.evaluate(() => !isYearEndOpen()), 'year end: Y closes the overlay');
+    ok(page._errors.length === 0, 'year end hotkeys: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: Y IS INERT UNDER OTHER OVERLAYS ---------------- */
+  console.log('\nphase 5 year end guard:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 25a: Y does not open year-end while the board pack is open. */
+    await page.keyboard.press('s');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overReport = await page.evaluate(() => ({ report: isReportOpen(), yearEnd: isYearEndOpen() }));
+    ok(overReport.report, 'year end guard: the board pack is open after skip');
+    ok(!overReport.yearEnd, 'year end guard: Y does not open the report while the board pack is open');
+    await page.evaluate(() => closeReport());
+
+    /* 25b: Y does not open year-end while the brief is open. */
+    await page.evaluate(() => { paused = true; setBoardRoles(['cfo']); openBrief(); });
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overBrief = await page.evaluate(() => ({ brief: isBriefOpen(), yearEnd: isYearEndOpen() }));
+    ok(overBrief.brief, 'year end guard: the brief is open');
+    ok(!overBrief.yearEnd, 'year end guard: Y does not open the report while the brief is open');
+    await page.evaluate(() => closeBrief());
+
+    /* 25c: Y does not open year-end while the facilitator notes are open. */
+    await page.evaluate(() => openFacilitatorNotes());
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overFacil = await page.evaluate(() => ({ facil: isFacilitatorNotesOpen(), yearEnd: isYearEndOpen() }));
+    ok(overFacil.facil, 'year end guard: the facilitator notes are open');
+    ok(!overFacil.yearEnd, 'year end guard: Y does not open the report while the facilitator notes are open');
+    await page.evaluate(() => closeFacilitatorNotes());
+
+    ok(page._errors.length === 0, 'year end guard: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: PRINT / EXPORT ---------------- */
+  console.log('\nphase 5 print/export:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    /* The print stylesheet must expand every section and drop the chrome. */
+    const uiCss = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'css', 'ui.css'), 'utf8');
+    const cssMin = uiCss.replace(/\s+/g, '');
+    ok(/@media\s*print/.test(uiCss), 'print: a print stylesheet exists');
+    ok(/\.ye-section\[hidden\]\{display:flex!important/.test(cssMin), 'print: the print stylesheet expands every section');
+    ok(cssMin.indexOf('.ye-foot{display:none') >= 0, 'print: the print stylesheet hides the footer controls');
+    /* Clicking Print reveals all five sections and calls window.print once. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    await page.evaluate(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
+    await page.click('#yearEndRoot .ye-print');
+    const r = await page.evaluate(() => ({
+      printed: window.__printed,
+      revealed: document.querySelectorAll('#yearEndRoot .ye-section:not([hidden])').length
+    }));
+    eq(r.revealed, 5, 'print: Print/Export reveals all five sections before printing');
+    eq(r.printed, 1, 'print: Print/Export invokes window.print exactly once');
+    ok(page._errors.length === 0, 'print: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: TIMELINE SELF-TEST REGRESSION ---------------- */
+  console.log('\nphase 5 timeline self-test:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const clean = await page.evaluate(() => {
+      function playFullYear() {
+        for (let i = 0; i < 4; i++) {
+          quarterComplete = true;
+          const q = getCurrentQuarterId();
+          confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+          advanceAfterDecision(q);
+        }
+      }
+      playFullYear();
+      const afterRun = runTimelineSelfTest().failures.length;
+      startNewGame();
+      playFullYear();
+      const afterReset = runTimelineSelfTest().failures.length;
+      return { afterRun, afterReset };
+    });
+    eq(clean.afterRun, 0, 'year end: timeline self-test is clean after a full four-quarter run');
+    eq(clean.afterReset, 0, 'year end: timeline self-test is clean after startNewGame plus a second run');
+    ok(page._errors.length === 0, 'year end timeline self-test: no console/page errors');
     await page.close();
   }
 

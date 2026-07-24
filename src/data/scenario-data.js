@@ -22,7 +22,7 @@
       the display name - one convention, stated here so the two never diverge.
 -------------------------------------------------------------------------- */
 var METRIC_DEFS = [
-  {key:'budget',  label:'BUDGET',  full:'Budget',               money:true,  goodUp:true,  start:0,  min:-5, max:2,
+  {key:'budget',  label:'BUDGET',  full:'Budget',               money:true,  goodUp:true,  start:0,  min:-8, max:2,
    unit:'£m',
    meaning:'In-year financial position against the annual plan, after agency, capital charges and CIP delivery.',
    proxy:'A 0.1 movement is roughly £100k over the year, or about two months of one agency ward shift pattern.',

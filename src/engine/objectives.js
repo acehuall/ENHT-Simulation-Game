@@ -11,6 +11,27 @@
    are treated as read-only here.
 --------------------------------------------------------------------------- */
 
+/* Plain-text target descriptor for an objective, e.g. "HOLD >= -£3.0m". Money
+   keeps the sign outside the £; index metrics are bare integers; the comparator
+   folds in goodUp so a lower-is-better `end` reads "REACH <=". Shared by the
+   board brief and the year-end scorecard so the two can never drift - it lived
+   in brief.js as _briefTargetText before phase 5 lifted it here. */
+function formatObjectiveTarget(obj){
+  var def=(typeof getMetricDef==='function') ? getMetricDef(obj.key) : null;
+  var val=(def && def.money)
+    ? ((obj.target<0?'-£':'£')+Math.abs(obj.target).toFixed(1)+'m')
+    : String(obj.target);
+  var op;
+  switch(obj.type){
+    case 'floor':   op='HOLD ≥ '; break;
+    case 'ceiling': op='KEEP ≤ '; break;
+    case 'delta':   op='GAIN ≥ '+(obj.target>=0?'+':''); break;
+    case 'end':     op=(def && def.goodUp===false) ? 'REACH ≤ ' : 'REACH ≥ '; break;
+    default:        op='';
+  }
+  return op+val;
+}
+
 /* -> PREGAME role object for an id, or null. */
 function getPregameRoleById(id){
   var i, roles=(typeof PREGAME!=='undefined' && PREGAME.roles) ? PREGAME.roles : [];

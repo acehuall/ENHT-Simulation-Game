@@ -161,7 +161,7 @@ Simulation internals: `requestAnimationFrame` with delta-time; agents advance al
 
 ## 7. Stats & Scoring System
 
-Six core stats. All 0–100 except Budget (£m, −10 to +10):
+Six core stats. All 0–100 except Budget (£m, **−8 to +2** as authored in `scenario-data.js`; widened from −5 in phase 5 so the −£6m deficit cap is genuinely reachable rather than sitting outside the valid range):
 
 | Stat | Start | What moves it | How the sim shows it |
 |---|---|---|---|
@@ -184,16 +184,35 @@ Six core stats. All 0–100 except Budget (£m, −10 to +10):
 
 **Final rating.** Score `= 0.25·Safety + 0.20·Waiting + 0.20·PatSat + 0.20·Morale + 0.15·Rep`, then budget adjustment: final surplus ≥ +£1m → +5; deficit ≤ −£3m → −10.
 
-**Caps (the sustainability lesson, enforced):** any core stat < 25 → rating capped at *Requires Improvement*; Safety < 30 → automatic *Inadequate*; Budget ≤ −£6m → capped at *Requires Improvement*.
+> **⚠ Waiting is a composite access index where LOWER IS BETTER** (68 start, 100 = access collapse), as authored in `scenario-data.js` (`goodUp:false`) and built into every band, threshold, alert and objective from phases 1–4. This paragraph's formula and the caps below therefore evaluate in **rating space**, where each metric is direction-normalised so higher is always better: waiting is flipped `(min+max)−value` before it is weighted or cap-tested, and only there (`toRatingSpace` in `engine/rating.js`). An earlier draft of this section read waiting as higher-is-better and is corrected here; re-authoring waiting the other way would invalidate all of phases 1–4, so the metric definition stands and the score adapts to it.
+
+**Caps (the sustainability lesson, enforced), all evaluated in rating space:** any core stat < 25 in rating space → capped at *Requires Improvement* (for waiting the dangerous end is **high**, so this fires when raw waiting is **above 75**, not below 25); Safety < 30 → automatic *Inadequate* (raw and rating space coincide for a higher-is-better metric); Budget ≤ −£6m → capped at *Requires Improvement* (read on raw budget). Caps only ever push a rating **down**, never up. They read the **year-end** closing position, not per-quarter minima — unlike the `floor` objectives, which latch.
 
 | Score | Rating | Stamp colour |
 |---|---|---|
-| ≥ 78 | ★ OUTSTANDING | Teal |
-| 58–77 | GOOD | Green |
-| 38–57 | REQUIRES IMPROVEMENT | Amber |
-| < 38 | INADEQUATE | Red |
+| ≥ 64 | ★ OUTSTANDING | Teal |
+| 50–63 | GOOD | Green |
+| 34–49 | REQUIRES IMPROVEMENT | Amber |
+| < 34 | INADEQUATE | Red |
 
-Sanity check: starting stats score 63.3 — solidly *Good*, with headroom to climb or crash. A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
+Sanity check: with waiting direction-corrected, starting stats score **56.1** — `0.25·66 + 0.20·(100−68) + 0.20·63 + 0.20·58 + 0.15·60` — solidly *Good*, with headroom to climb or crash.
+
+**Calibrated against all 256 legal decision paths (phase 5).** The bands and the option-effect spread were tuned *together* — boundaries lowered (OUTSTANDING 72→64, GOOD 52→50) **and** the effects widened — rather than only sliding a number, so every advertised rating and every cap is actually reachable. Over the 256 four-quarter paths:
+
+| | Reachable | Notes |
+|---|---|---|
+| Score range | 39.5 – 69.1 | (median ≈ 54) |
+| ★ OUTSTANDING (≥64) | 9 paths | balanced investment that keeps the deficit in check |
+| GOOD (50–63) | 165 paths | the broad middle |
+| REQUIRES (34–49) | 79 paths | includes paths capped down from a higher raw score |
+| INADEQUATE (<34) | 3 paths | reached via the safety-breach cap (see below) |
+| `core_stat_low` cap | 21 paths | mostly high waiting (rating-space < 25) |
+| `safety_breach` cap | 3 paths | safety closes below 30 (down to 25) |
+| `deficit_severe` cap | 4 paths | budget closes at −6 to −6.8 |
+| budget +£1 surplus (+5) | 9 paths | reachable via cost-saving choices |
+| budget −£3 deficit (−10) | 84 paths | reachable via investment |
+
+INADEQUATE is reached by *breaching safety*, not by being uniformly mediocre — a deliberate design point, and the sustainability lesson made mechanical: a board can post respectable headline numbers and still be rated Inadequate because it let clinical safety collapse. `tests/ui.test.js` enumerates every path on every run and fails if any band or cap becomes unreachable, so this table cannot silently rot. A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
 
 ---
 

@@ -353,3 +353,162 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   .rep-foot{flex-wrap:wrap;}
   .rep-foot .decision{margin-left:0; width:100%;}
 }
+
+/* ---------- year end report overlay (phase 5) ----------
+   Same dark overlay chrome as the facilitator/brief modals, sized wide like the
+   board pack. Band chips and the rating stamp reuse the phase-1 band-{tone}
+   contract and its shared tone variables. Sits above the board pack (z 34). */
+.ye-root[hidden]{display:none;}
+.ye-root{
+  position:fixed; inset:0; z-index:34; display:flex; align-items:center; justify-content:center;
+  background:rgba(4,6,11,.92); padding:18px; color:var(--ink);
+}
+.ye-modal{
+  width:min(1060px,97vw); max-height:95vh; display:flex; flex-direction:column;
+  border:2px solid var(--line); background:#101522; box-shadow:0 10px 0 #05070c;
+}
+.ye-top{display:flex; align-items:baseline; gap:14px; padding:11px 14px; border-bottom:2px solid var(--line);}
+.ye-top h2{font-size:15px; letter-spacing:3px;}
+.ye-sub{font-size:10px; color:var(--amber); letter-spacing:1px;}
+.ye-body{min-height:0; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:18px;}
+.ye-section[hidden]{display:none;}
+.ye-section{display:flex; flex-direction:column; gap:12px;}
+.ye-sec-head{display:flex; align-items:center; gap:12px; border-bottom:3px solid var(--teal); padding-bottom:7px;}
+.ye-sec-num{background:var(--teal); color:#04231f; font-weight:bold; padding:5px 9px; letter-spacing:1px;}
+.ye-sec-head h3{font-size:16px; letter-spacing:3px; text-transform:uppercase; color:var(--ink);}
+.ye-empty{font-size:12px; line-height:1.5; color:var(--dim); border:2px dashed var(--line); padding:10px 12px;}
+
+/* section 1 - final position */
+.ye-metric-rows{display:flex; flex-direction:column; gap:6px;}
+.ye-metric-row{
+  display:grid; grid-template-columns:1.3fr 1fr 62px auto 74px; align-items:center; gap:10px;
+  background:#0a0c13; border:1px solid var(--line); padding:6px 10px; font-size:12px;
+}
+.ye-metric-name{font-weight:bold; letter-spacing:1px;}
+.ye-metric-se{color:var(--ink); letter-spacing:.5px;}
+.ye-metric-delta{font-weight:bold; text-align:right;}
+.ye-metric-delta.ye-good{color:var(--green);}
+.ye-metric-delta.ye-bad{color:var(--red);}
+.ye-metric-delta.ye-flat{color:var(--dim);}
+.ye-band{
+  font-style:normal; font-size:9px; font-weight:bold; letter-spacing:1px; white-space:nowrap;
+  border:1px solid var(--line); padding:2px 6px;
+}
+.ye-band.band-critical{color:var(--critical); border-color:var(--critical);}
+.ye-band.band-warn{color:var(--amber); border-color:var(--amber);}
+.ye-band.band-neutral{color:var(--dim);}
+.ye-band.band-good{color:var(--green); border-color:var(--green);}
+.ye-band.band-great{color:var(--teal); border-color:var(--teal);}
+.ye-metric-bar{display:flex; align-items:flex-end; gap:4px; height:34px; justify-self:end;}
+.ye-bar{display:block; width:12px; min-height:3px; border:1px solid var(--line);}
+.ye-bar.last{background:#3a4360;}
+.ye-bar.cur{background:var(--teal);}
+.ye-charts{display:grid; grid-template-columns:1fr 1fr; gap:14px;}
+.ye-chart-box{border:2px solid var(--line); background:#0a0c13; padding:8px;}
+.ye-chart-title{font-size:9px; letter-spacing:2px; color:var(--dim); margin-bottom:6px;}
+.ye-chart{width:100%; height:auto; image-rendering:auto;}
+.ye-chart-legend{display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-size:9px; letter-spacing:1px; color:var(--dim);}
+.ye-chart-legend span{display:flex; align-items:center; gap:4px;}
+.ye-chart-legend i{width:12px; height:4px; display:inline-block;}
+
+/* section 2 - decision timeline */
+.ye-timeline{display:flex; flex-direction:column; gap:8px;}
+.ye-tl-row{border:1px solid var(--line); border-left:4px solid var(--teal); background:#0a0c13; padding:8px 11px; display:flex; flex-direction:column; gap:5px;}
+.ye-tl-top{display:flex; align-items:baseline; gap:10px;}
+.ye-tl-q{font-style:normal; font-size:9px; font-weight:bold; letter-spacing:1px; color:var(--teal); border:1px solid var(--teal); padding:2px 6px;}
+.ye-tl-title{font-size:12px; font-weight:bold; letter-spacing:.5px; color:var(--amber);}
+.ye-tl-summary{font-size:11px; line-height:1.45; color:var(--ink);}
+.ye-tl-chips,.ye-tl-alerts{display:flex; flex-wrap:wrap; gap:5px;}
+.ye-tl-alerts{flex-direction:column; margin-top:2px;}
+.ye-chip{font-style:normal; font-size:9px; font-weight:bold; letter-spacing:1px; border:1px solid var(--line); padding:2px 6px;}
+.ye-good{color:var(--green); border-color:var(--green);}
+.ye-bad{color:var(--red); border-color:var(--red);}
+.ye-tl-alert{font-size:10px; line-height:1.4; border-left:3px solid var(--amber); background:rgba(233,180,76,.1); padding:4px 8px; color:var(--ink);}
+.ye-tl-alert b{color:var(--amber); letter-spacing:.5px;}
+.ye-tl-alert.sev-critical{border-left-color:var(--critical); background:rgba(224,82,82,.12);}
+.ye-tl-alert.sev-critical b{color:var(--critical);}
+.ye-tl-alert.sev-praise{border-left-color:var(--teal); background:rgba(35,196,180,.1);}
+.ye-tl-alert.sev-praise b{color:var(--teal);}
+
+/* section 3 - rating */
+.ye-stamp-wrap{display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 0;}
+.ye-stamp{
+  border:5px double currentColor; padding:12px 30px; font-size:30px; letter-spacing:6px;
+  font-weight:bold; text-align:center; transform:rotate(-3deg);
+}
+.ye-stamp.band-critical{color:var(--critical);}
+.ye-stamp.band-warn{color:var(--amber);}
+.ye-stamp.band-good{color:var(--green);}
+.ye-stamp.band-great{color:var(--teal);}
+.ye-stamp-score{font-size:11px; letter-spacing:2px; color:var(--dim);}
+.ye-provisional{font-size:10px; letter-spacing:1px; color:var(--amber); font-weight:bold;}
+.ye-breakdown{width:100%; border-collapse:collapse; font-size:12px;}
+.ye-breakdown th,.ye-breakdown td{border:1px solid var(--line); padding:6px 9px; text-align:right;}
+.ye-breakdown th{background:#0a0c13; color:var(--dim); letter-spacing:1px; text-transform:uppercase; font-size:10px;}
+.ye-breakdown td:first-child,.ye-breakdown th:first-child{text-align:left; font-weight:bold; letter-spacing:.5px;}
+.ye-breakdown-sub td{border-top:3px solid var(--teal); font-weight:bold; background:#0a0c13;}
+.ye-adjust{font-size:11px; color:var(--dim); letter-spacing:.5px; border-left:3px solid var(--line); padding:5px 9px;}
+.ye-caps{border:2px solid var(--critical); background:rgba(224,82,82,.14); padding:9px 11px; display:flex; flex-direction:column; gap:5px;}
+.ye-caps-head{font-size:11px; font-weight:bold; letter-spacing:2px; color:var(--critical);}
+.ye-cap-line{font-size:11px; line-height:1.45; color:var(--ink);}
+.ye-cap-line b{color:#ffb3b3;}
+.ye-cap-from{font-size:10px; color:var(--dim); letter-spacing:.5px;}
+
+/* section 4 - scorecards */
+.ye-cards{display:grid; grid-template-columns:1fr 1fr; gap:10px;}
+.ye-cards-dense{grid-template-columns:repeat(auto-fill,minmax(300px,1fr));}
+.ye-card{border:2px solid var(--line); border-left:6px solid var(--teal); background:#0a0c13; padding:9px 11px; display:flex; flex-direction:column; gap:7px;}
+.ye-card-head{display:flex; align-items:center; gap:10px;}
+.ye-card-name{font-size:12px; font-weight:bold; letter-spacing:1px; color:var(--amber);}
+.ye-card-head .ye-band{margin-left:auto;}
+.ye-obj{border-top:1px solid var(--line); padding-top:6px; display:flex; flex-direction:column; gap:3px;}
+.ye-obj-meta{display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;}
+.ye-tick{font-style:normal; font-size:9px; font-weight:bold; letter-spacing:1px; border:1px solid var(--line); padding:2px 6px;}
+.ye-tick-pass{color:var(--green); border-color:var(--green);}
+.ye-tick-marginal{color:var(--amber); border-color:var(--amber); background:rgba(233,180,76,.12);}
+.ye-tick-fail{color:var(--critical); border-color:var(--critical);}
+.ye-obj-target{font-size:9px; letter-spacing:1px; color:var(--dim);}
+.ye-obj-weight{font-style:normal; margin-left:auto; font-size:9px; color:var(--dim); border:none; padding:0;}
+.ye-obj-label{font-size:11px; line-height:1.4; color:var(--ink);}
+.ye-obj-actual{font-size:10px; letter-spacing:.5px; color:var(--dim);}
+.ye-obj-outcome{font-size:10px; line-height:1.4; color:var(--ink); opacity:.85;}
+.ye-obj-marginal .ye-obj-outcome,.ye-obj-marginal .ye-obj-label{color:var(--amber);}
+.ye-obj-fail .ye-obj-outcome{color:#ffb3b3;}
+.ye-card-foot{display:flex; align-items:center; gap:10px; border-top:2px solid var(--line); padding-top:6px; margin-top:auto;}
+.ye-card-score{font-size:11px; font-weight:bold; letter-spacing:1px;}
+.ye-card-verdict{font-style:normal; margin-left:auto; font-size:9px; font-weight:bold; letter-spacing:1px; color:var(--teal); border:1px solid var(--teal); padding:2px 7px;}
+
+/* section 5 - board verdict */
+.ye-verdict-line{font-size:13px; line-height:1.55; color:var(--ink); border-left:4px solid var(--amber); padding:8px 12px; background:rgba(233,180,76,.08);}
+.ye-figs{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px;}
+.ye-fig{border:1px solid var(--line); background:#0a0c13; padding:7px 10px;}
+.ye-fig-label{font-size:9px; letter-spacing:1px; color:var(--dim); text-transform:uppercase;}
+.ye-fig-value{font-size:12px; font-weight:bold; letter-spacing:.5px; color:var(--ink); margin-top:3px;}
+
+/* footer */
+.ye-foot{display:flex; align-items:center; gap:12px; padding:10px 14px; border-top:2px solid var(--line); flex-wrap:wrap;}
+.ye-pace{display:flex; align-items:center; gap:10px;}
+.ye-progress{font-size:10px; letter-spacing:1px; color:var(--dim);}
+.ye-actions{display:flex; align-items:center; gap:8px; margin-left:auto;}
+.ye-newgame{border-color:var(--teal); color:var(--teal); font-weight:bold;}
+.ye-continue[hidden],.ye-showall[hidden]{display:none;}
+
+@media (max-width:760px){
+  .ye-charts,.ye-cards{grid-template-columns:1fr;}
+  .ye-metric-row{grid-template-columns:1fr 1fr auto; }
+  .ye-metric-bar{display:none;}
+  .ye-foot{flex-direction:column; align-items:stretch;}
+  .ye-actions{margin-left:0;}
+}
+
+/* print: a one-page takeaway. Expand every section, drop the dark chrome and
+   the app behind, and hide the pacing/action controls. */
+@media print{
+  body *{visibility:hidden;}
+  .ye-root,.ye-root *{visibility:visible;}
+  .ye-root{position:absolute; inset:0; background:#fff; color:#111; display:block; padding:0;}
+  .ye-modal{width:100%; max-height:none; border:none; box-shadow:none; background:#fff; color:#111;}
+  .ye-body{overflow:visible; max-height:none;}
+  .ye-section[hidden]{display:flex !important;}
+  .ye-foot{display:none;}
+}

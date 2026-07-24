@@ -51,6 +51,27 @@ async function freshPage(browser) {
 
 const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.length);
 
+/* Drive a fresh page all the way to the Year End Report through the real
+   completion path: commit Q1-Q3, then take Q4 through the board pack so
+   goToNextReportQuarter() fires the 'year-complete' branch that opens the
+   overlay. `roles` (or null) is the board to score. */
+async function driveToYearEnd(page, roles) {
+  await page.evaluate((roleIds) => {
+    resetGameState();
+    if (roleIds) setBoardRoles(roleIds);
+    for (let i = 0; i < 3; i++) {
+      quarterComplete = true;
+      const q = getCurrentQuarterId();
+      confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+      advanceAfterDecision(q);
+    }
+    quarterComplete = true;
+    openReport();
+    _chooseReportOption(0);        // records the Q4 decision
+    goToNextReportQuarter();       // 'year-complete' -> closeReport + openYearEnd
+  }, roles || null);
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: resolveChromium() });
 
@@ -1608,6 +1629,251 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     eq(after.decisions, 2, 'restart quarter: plain R does not clear committed decisions');
     eq(after.clock, 0, 'restart quarter: plain R still resets the quarter clock');
     ok(page._errors.length === 0, 'restart quarter: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: YEAR END OVERLAY ---------------- */
+  console.log('\nphase 5 year end overlay:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 14: hidden on load. */
+    const hiddenOnLoad = await page.evaluate(() => document.getElementById('yearEndRoot').hidden);
+    ok(hiddenOnLoad, 'year end: overlay is hidden on load');
+
+    /* 15: committing all four decisions and advancing opens it, paused. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const opened = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      paused: paused,
+      reportOpen: isReportOpen(),
+      sections: document.querySelectorAll('#yearEndRoot .ye-section').length,
+      title: document.getElementById('yeTitle').textContent
+    }));
+    ok(opened.open, 'year end: completing the fourth quarter opens the overlay');
+    ok(opened.paused, 'year end: opening the overlay pauses the simulation');
+    ok(!opened.reportOpen, 'year end: the board pack is closed behind the overlay');
+    eq(opened.sections, 5, 'year end: five sections are built');
+    ok(/YEAR END/.test(opened.title), 'year end: a completed year is titled YEAR END REPORT');
+
+    /* 16: Escape closes; scene is boardRoom, paused remains true (no restore). */
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(120);
+    const escaped = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      scene: currentScene,
+      paused: paused
+    }));
+    ok(!escaped.open, 'year end: Escape closes the overlay');
+    eq(escaped.scene, 'boardRoom', 'year end: closing lands on the boardroom');
+    ok(escaped.paused, 'year end: closing stays paused (no prior unpaused state is restored)');
+    ok(page._errors.length === 0, 'year end: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: CLOSE BUTTON + ROLES + INTERIM ---------------- */
+  console.log('\nphase 5 year end sections:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 18: one scorecard per selected role. */
+    await driveToYearEnd(page, ['cfo', 'md', 'coo']);
+    const withRoles = await page.evaluate(() => ({
+      cards: document.querySelectorAll('#yearEndRoot .ye-card').length,
+      timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length,
+      stamp: document.querySelector('#yearEndRoot .ye-stamp').textContent.trim()
+    }));
+    eq(withRoles.cards, 3, 'year end: one scorecard renders per selected role');
+    eq(withRoles.timeline, 4, 'year end: the decision timeline lists four committed quarters');
+    ok(withRoles.stamp.length > 0, 'year end: a rating stamp is rendered');
+
+    /* 17: Close button lands on the boardroom and the board pack is not behind it. */
+    await page.click('#yearEndRoot .ye-close');
+    await page.waitForTimeout(120);
+    const closed = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      scene: currentScene,
+      reportVisible: !document.getElementById('repRoot').hidden
+    }));
+    ok(!closed.open, 'year end: the Close button hides the overlay');
+    eq(closed.scene, 'boardRoom', 'year end: Close lands on the boardroom');
+    ok(!closed.reportVisible, 'year end: the board pack is not visible behind the closed overlay');
+
+    /* 19: no roles (skipintro default) - opens without throwing, shows the line. */
+    await driveToYearEnd(page, null);
+    const noRoles = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      cards: document.querySelectorAll('#yearEndRoot .ye-card').length,
+      hasLine: /No board was assembled/.test(document.getElementById('yearEndRoot').textContent)
+    }));
+    ok(noRoles.open, 'year end: opens without throwing when no roles were selected');
+    eq(noRoles.cards, 0, 'year end: no scorecards render for an empty board');
+    ok(noRoles.hasLine, 'year end: the empty board shows the explanatory no-roles line');
+    await page.evaluate(() => closeYearEnd());
+
+    /* 20: opening via Y mid-game labels the report interim. */
+    await page.evaluate(() => { resetGameState(); });
+    await page.keyboard.press('y');
+    await page.waitForTimeout(120);
+    const interim = await page.evaluate(() => ({
+      open: isYearEndOpen(),
+      title: document.getElementById('yeTitle').textContent,
+      provisional: /PROVISIONAL/.test(document.getElementById('yearEndRoot').textContent)
+    }));
+    ok(interim.open, 'year end: Y opens the report mid-game');
+    ok(/INTERIM/.test(interim.title), 'year end: a mid-game report is labelled INTERIM');
+    ok(interim.provisional, 'year end: a mid-game rating is marked provisional');
+    await page.evaluate(() => closeYearEnd());
+
+    ok(page._errors.length === 0, 'year end sections: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: FLOOR LATCH ON THE SCORECARD + REBUILD ---------------- */
+  console.log('\nphase 5 year end latch + rebuild:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 21: a floor breached in Q2 and recovered by Q4 still reads FAIL. */
+    const latch = await page.evaluate(() => {
+      resetGameState();
+      setBoardRoles(['md']);          // md_safety_floor: hold safety >= 64 every quarter
+      function outcome(qId, endChanges) {
+        const s = initialMetricStats();
+        const e = Object.assign({}, s, endChanges || {});
+        return { quarterId: qId, optionId: 't', optionTitle: 'T', decisionSummary: 'd', startStats: s, endStats: e, effects: {} };
+      }
+      applyBoardDecision(outcome('Q1', { safety: 66 }));
+      applyBoardDecision(outcome('Q2', { safety: 60 }));   // breach the 64 floor
+      applyBoardDecision(outcome('Q3', { safety: 63 }));
+      applyBoardDecision(outcome('Q4', { safety: 70 }));   // recovered by year end
+      openYearEnd();
+      const objs = Array.from(document.querySelectorAll('#yearEndRoot .ye-obj'));
+      const floorObj = objs.find(o => /concern line/.test(o.textContent));
+      const res = {
+        found: !!floorObj,
+        failClass: floorObj ? floorObj.className.indexOf('ye-obj-fail') >= 0 : null,
+        tick: floorObj ? floorObj.querySelector('.ye-tick').textContent : null
+      };
+      closeYearEnd();
+      return res;
+    });
+    ok(latch.found, 'year end: the latched safety floor objective is rendered');
+    ok(latch.failClass, 'year end: a floor breached in Q2 and recovered by Q4 still reads fail on the scorecard');
+    ok(/FAIL/.test(latch.tick), 'year end: the latched objective shows a FAIL tick');
+
+    /* 22: opening twice produces exactly one modal. */
+    const modals = await page.evaluate(() => {
+      openYearEnd();
+      openYearEnd();
+      const n = document.querySelectorAll('#yearEndRoot .ye-modal').length;
+      closeYearEnd();
+      return n;
+    });
+    eq(modals, 1, 'year end: opening the overlay twice produces exactly one modal');
+    ok(page._errors.length === 0, 'year end latch + rebuild: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: HOTKEY SUPPRESSION ---------------- */
+  console.log('\nphase 5 year end hotkeys:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    await driveToYearEnd(page, ['cfo', 'md']);
+
+    /* 23: S/P/R/F/B are all inert while the report owns the screen. */
+    const pre = await page.evaluate(() => ({ clock: Math.round(clock), complete: quarterComplete }));
+    for (const k of ['s', 'p', 'r', 'f', 'b']) await page.keyboard.press(k);
+    await page.waitForTimeout(120);
+    const suppressed = await page.evaluate(() => ({
+      yearEnd: isYearEndOpen(),
+      paused: paused,
+      facil: !document.getElementById('facilRoot').hidden,
+      brief: !document.getElementById('briefRoot').hidden,
+      clock: Math.round(clock),
+      complete: quarterComplete
+    }));
+    ok(suppressed.yearEnd, 'year end: the overlay stays open through S/P/R/F/B');
+    ok(suppressed.paused, 'year end: P does not unpause behind the overlay');
+    ok(!suppressed.facil, 'year end: F does not open the facilitator notes over the report');
+    ok(!suppressed.brief, 'year end: B does not open the brief over the report');
+    eq(suppressed.clock, pre.clock, 'year end: S does not advance the sim behind the overlay');
+    eq(suppressed.complete, pre.complete, 'year end: R does not reset state behind the overlay');
+
+    /* 24: Y closes it. */
+    await page.keyboard.press('y');
+    await page.waitForTimeout(120);
+    ok(await page.evaluate(() => !isYearEndOpen()), 'year end: Y closes the overlay');
+    ok(page._errors.length === 0, 'year end hotkeys: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: Y IS INERT UNDER OTHER OVERLAYS ---------------- */
+  console.log('\nphase 5 year end guard:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* 25a: Y does not open year-end while the board pack is open. */
+    await page.keyboard.press('s');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overReport = await page.evaluate(() => ({ report: isReportOpen(), yearEnd: isYearEndOpen() }));
+    ok(overReport.report, 'year end guard: the board pack is open after skip');
+    ok(!overReport.yearEnd, 'year end guard: Y does not open the report while the board pack is open');
+    await page.evaluate(() => closeReport());
+
+    /* 25b: Y does not open year-end while the brief is open. */
+    await page.evaluate(() => { paused = true; setBoardRoles(['cfo']); openBrief(); });
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overBrief = await page.evaluate(() => ({ brief: isBriefOpen(), yearEnd: isYearEndOpen() }));
+    ok(overBrief.brief, 'year end guard: the brief is open');
+    ok(!overBrief.yearEnd, 'year end guard: Y does not open the report while the brief is open');
+    await page.evaluate(() => closeBrief());
+
+    /* 25c: Y does not open year-end while the facilitator notes are open. */
+    await page.evaluate(() => openFacilitatorNotes());
+    await page.keyboard.press('y');
+    await page.waitForTimeout(80);
+    const overFacil = await page.evaluate(() => ({ facil: isFacilitatorNotesOpen(), yearEnd: isYearEndOpen() }));
+    ok(overFacil.facil, 'year end guard: the facilitator notes are open');
+    ok(!overFacil.yearEnd, 'year end guard: Y does not open the report while the facilitator notes are open');
+    await page.evaluate(() => closeFacilitatorNotes());
+
+    ok(page._errors.length === 0, 'year end guard: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: TIMELINE SELF-TEST REGRESSION ---------------- */
+  console.log('\nphase 5 timeline self-test:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const clean = await page.evaluate(() => {
+      function playFullYear() {
+        for (let i = 0; i < 4; i++) {
+          quarterComplete = true;
+          const q = getCurrentQuarterId();
+          confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+          advanceAfterDecision(q);
+        }
+      }
+      playFullYear();
+      const afterRun = runTimelineSelfTest().failures.length;
+      startNewGame();
+      playFullYear();
+      const afterReset = runTimelineSelfTest().failures.length;
+      return { afterRun, afterReset };
+    });
+    eq(clean.afterRun, 0, 'year end: timeline self-test is clean after a full four-quarter run');
+    eq(clean.afterReset, 0, 'year end: timeline self-test is clean after startNewGame plus a second run');
+    ok(page._errors.length === 0, 'year end timeline self-test: no console/page errors');
     await page.close();
   }
 

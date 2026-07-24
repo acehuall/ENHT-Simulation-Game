@@ -165,6 +165,11 @@ function compileTimeline(outcome, quarterEvent){
   }
 
   visualEvents.push({type:'moodEmote', t0:0, t1:QLEN});
+  /* Spans the quarter and reads live band state per frame, so it needs no
+     per-quarter authoring. Render-only: it carries no effects and never enters
+     the stat-event path. Per-quarter scoping stays possible via ambientVisuals
+     with an `only` filter, but none is authored yet. */
+  visualEvents.push({type:'metricPressure', t0:0, t1:QLEN});
   visualEvents.sort(function(a,b){ return (a.t0 || 0)-(b.t0 || 0); });
   statEvents.sort(function(a,b){ return a.t-b.t; });
 

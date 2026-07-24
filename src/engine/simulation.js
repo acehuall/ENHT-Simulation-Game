@@ -12,6 +12,7 @@ function render(){
   /* Seed from the reconstructed landing values, never from the pre-rewind
      position, so an automatic rewind cannot manufacture a crossing. */
   if(rewound && typeof resetAlerts==='function') resetAlerts();
+  if(rewound && typeof resetMetricPressure==='function') resetMetricPressure(simT);
   ctx.drawImage(stat,0,0);
 
   if($('ckGrid').checked){

@@ -32,6 +32,7 @@ function drawTimelineVisual(ev, simT, clock){
     case 'dischargeStream': drawDischargeStreamCue(ev, simT, clock); break;
     case 'corridorTrolleys': drawCorridorTrolleyCue(ev, simT, clock); break;
     case 'moodEmote': drawMetricMoodEmote(); break;
+    case 'metricPressure': drawMetricPressureCue(ev, simT, clock); break;
   }
 }
 
@@ -93,14 +94,21 @@ function drawDischargeStreamCue(ev, simT, clock){
   }
 }
 
-function drawWardIncidentCue(ev, simT, clock){
-  if(Math.floor(clock*3)%2!==0) return;
-  var pos=_tileCenter(ev.tile || [7,14]), wx=pos.x, wy=pos.y-4;
+/* Draw the incident warning glyph on a tile with no timing gate of its own, so
+   both the legacy wall-clock cue and the pressure-driven incident channel can
+   share the drawing without their two timing systems fighting. */
+function _drawIncidentGlyph(tile){
+  var pos=_tileCenter(tile || [7,14]), wx=pos.x, wy=pos.y-4;
   ctx.fillStyle='#b3541e'; ctx.beginPath();
   ctx.moveTo(wx,wy-20); ctx.lineTo(wx+13,wy+2); ctx.lineTo(wx-13,wy+2); ctx.closePath(); ctx.fill();
   ctx.fillStyle='#ffcf3f'; ctx.beginPath();
   ctx.moveTo(wx,wy-16); ctx.lineTo(wx+10,wy); ctx.lineTo(wx-10,wy); ctx.closePath(); ctx.fill();
   R('#1a1a1a',wx-1,wy-11,3,6); R('#1a1a1a',wx-1,wy-3,3,2);
+}
+
+function drawWardIncidentCue(ev, simT, clock){
+  if(Math.floor(clock*3)%2!==0) return;
+  _drawIncidentGlyph(ev.tile || [7,14]);
 }
 
 function drawPressScrumCue(ev, simT, clock){
@@ -190,6 +198,100 @@ function drawTimelineSnow(ev, simT, clock){
     R(i%3 ? '#dfe8f4' : '#ffffff',x,y,2,2);
   }
   ctx.globalAlpha=1;
+}
+
+/* ---------- phase 6: on-map metric pressure ----------
+   A render-only cue whose per-channel intensity reads live band state, so the
+   ward visibly degrades or improves as stats move during playback. Reads only
+   the pure derivation in metric-pressure.js; never pushes a statEvent, mutates
+   ev.effects or writes back to METRIC_CUR. */
+
+/* Facilitator toggle: read #ckPressure directly, mirroring how render() reads
+   #ckGrid with no handler. Absent checkbox (or a test harness) counts as on. */
+function _pressureCueEnabled(){
+  var el=(typeof $==='function') ? $('ckPressure') : null;
+  return !el || el.checked;
+}
+
+/* Shared, mutable visual-state scratch so the queue channel adds no per-sprite
+   per-frame allocation. Safe because drawAgent consumes it synchronously. */
+var _pressureQueueVisual={illnessTint:0};
+
+function drawMetricPressureCue(ev, simT, clock){
+  if(!_pressureCueEnabled()) return;
+  updateMetricPressure(simT);
+  var pressures=getActivePressures(simT), only=ev && ev.only, i, p;
+  for(i=0;i<pressures.length;i++){
+    p=pressures[i];
+    if(only && only.indexOf(p.key)<0) continue;
+    switch(p.channel){
+      case 'queueDensity':  _drawQueueDensity(p.intensity, simT, clock); break;
+      case 'staffIdle':     _drawStaffIdle(p.intensity, simT, clock); break;
+      case 'incidentRate':  _drawIncidentRate(p.intensity, simT); break;
+      case 'pressPresence': _drawPressPresence(p.intensity, simT, clock); break;
+    }
+  }
+}
+
+/* Extra seated patients in the waiting room, tinted unwell where the tone
+   authors it, so a critical queue reads as ill rather than merely numerous. */
+function _drawQueueDensity(intensity, simT, clock){
+  var model=PRESSURE_MODEL.waiting, seats=model.seatTiles;
+  var n=Math.min(seats.length, Math.round(intensity));
+  var tint=getPressureScalar('waiting','illTintFromTone', simT), i, tile, vs;
+  for(i=0;i<n;i++){
+    tile=seats[i];
+    if(tint>0){ _pressureQueueVisual.illnessTint=tint; vs=_pressureQueueVisual; }
+    else vs=null;
+    drawAgent('patient', tile[0], tile[1], 0, 1, false, clock, true, vs);
+  }
+}
+
+/* Stationary staff idling in the staff room. Pace multiplier is deliberately
+   out of scope (phase 6 amendment 4): idle staff while the ward is under
+   pressure is a legible signal; slow-walking staff is not. Role alternates by
+   tile index for determinism. */
+function _drawStaffIdle(intensity, simT, clock){
+  var model=PRESSURE_MODEL.morale, tiles=model.idleTiles;
+  var n=Math.min(tiles.length, Math.round(intensity)), i, tile, role;
+  for(i=0;i<n;i++){
+    tile=tiles[i];
+    role=(hash(i,17)%2) ? 'doctor' : 'nurse';
+    drawAgent(role, tile[0], tile[1], 0, 1, false, clock, false);
+  }
+}
+
+/* Ward incident flashes whose frequency scales with the safety tone. intensity
+   is flashes per 10s of SIM time; period is its reciprocal. Flash n occupies
+   [n*period, n*period + flashDuration) and its tile is a pure function of n, so
+   the whole channel is deterministic with no accumulator. An authored
+   wardIncidentFlash active on the chosen tile wins for its own moment; the
+   pressure channel keeps flashing its other tiles. */
+function _drawIncidentRate(intensity, simT){
+  if(intensity<=0) return;
+  var model=PRESSURE_MODEL.safety, tiles=model.tiles;
+  var period=10/intensity;
+  var n=Math.floor(simT/period);
+  if((simT - n*period) >= model.flashDuration) return;
+  var tile=tiles[hash(n,23)%tiles.length];
+  var authored=getTimelineEventsAt('wardIncidentFlash', simT), i, a;
+  for(i=0;i<authored.length;i++){
+    a=authored[i].tile || [7,14];
+    if(a[0]===tile[0] && a[1]===tile[1]) return; /* authored cue owns this tile */
+  }
+  _drawIncidentGlyph(tile);
+}
+
+/* Press at the entrance when reputation is a problem or a story. Suppressed
+   entirely while an authored Q3 pressScrum is active, so Q3 renders one scrum,
+   not two (same authored-wins rule as the incident channel). */
+function _drawPressPresence(intensity, simT, clock){
+  var count=Math.round(intensity);
+  if(count<=0) return;
+  if(getTimelineEventsAt('pressScrum', simT).length) return;
+  var model=PRESSURE_MODEL.rep, p=getMetricPressure('rep', simT);
+  var flash=!!(model.flashLightsFromTone && p && model.flashLightsFromTone[p.tone]);
+  drawPressScrumCue({count:count, flashLights:flash, t0:0, t1:QLEN}, simT, clock);
 }
 
 function drawMetricMoodEmote(){

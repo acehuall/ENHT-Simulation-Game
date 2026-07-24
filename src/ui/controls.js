@@ -8,6 +8,11 @@ function seekSimulation(t){
   resetMetrics();
   updateMetrics(target);
   if(typeof resetAlerts==='function') resetAlerts();
+  /* Seed pressure from the landed values (after updateMetrics), so a scrub
+     renders the settled state instead of animating in from the old position.
+     seekSimulation sets prevSimT=target before render() runs, so render's own
+     rewound branch never fires for a scrub - this call is what covers it. */
+  if(typeof resetMetricPressure==='function') resetMetricPressure(target);
   syncBoardPackButton();
 }
 

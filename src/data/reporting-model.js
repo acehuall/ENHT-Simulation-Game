@@ -115,6 +115,46 @@ var REPORTING_COMMENTARY = {
   }
 };
 
+/* ---------- on-map metric pressure model (phase 6) ----------
+   Visual intensity keyed by band TONE, never by band index.
+   Band ARRAY ORDER is by value and is therefore inverted for goodUp:false
+   metrics (waiting authors exemplar first, critical last). Tone is authored
+   by desirability and is consistent across all six metrics, so tone is the
+   only safe key. Do not convert this to an index lookup.
+
+   Every coefficient lives here, matching how phase 3 keeps its tuning in
+   REPORTING_COEFFS, so playtest tuning never touches render code. Consumed by
+   engine/metric-pressure.js (pure derivation) and drawn by
+   engine/timeline-visuals.js. This is data only - no consumers of a metric's
+   live value live here. */
+var PRESSURE_MODEL = {
+  waiting: {
+    channel:'queueDensity',
+    byTone:{critical:6, warn:4, neutral:2, good:1, great:0},
+    seatTiles:[[18,11],[18,12],[18,13],[18,14],[20,11],[20,12],[20,13],[20,14]],
+    illTintFromTone:{critical:0.30, warn:0.15}
+  },
+  morale: {
+    channel:'staffIdle',
+    idleByTone:{critical:3, warn:2, neutral:1, good:0, great:0},
+    idleTiles:[[23,3],[24,4],[23,5]]
+  },
+  safety: {
+    channel:'incidentRate',
+    /* flashes per 10s of SIM time; 0 means the channel is silent */
+    byTone:{critical:3.2, warn:1.8, neutral:0.8, good:0.25, great:0},
+    flashDuration:0.34,                     /* seconds a flash stays lit */
+    tiles:[[7,14],[2,14],[11,14],[24,14]]
+  },
+  rep: {
+    channel:'pressPresence',
+    /* neutral is 0. Press turn up when reputation is a problem or a story, not
+       as ambient background at a stable trust. */
+    byTone:{critical:4, warn:2, neutral:0, good:0, great:0},
+    flashLightsFromTone:{critical:true, warn:true}
+  }
+};
+
 /* ---------- internal helpers ---------- */
 
 /* The authored opening value for a metric. Using the live METRIC_DEFS start

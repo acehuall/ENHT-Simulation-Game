@@ -15,9 +15,9 @@ var QUARTER_EVENTS = {
   Q1: {
     id: 'Q1',
     label: 'Q1',
-    eventName: 'Infection Pressure',
-    displayName: 'Q1 - INFECTION PRESSURE',
-    bannerLine: 'INFECTION PRESSURE',
+    eventName: 'Opening Position',
+    displayName: 'Q1 - OPENING POSITION',
+    bannerLine: 'OPENING POSITION',
     patientSpawnMult: 1.0,
     patientIllnessTint: false,
     patientIllness: {

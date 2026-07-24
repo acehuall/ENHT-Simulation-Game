@@ -153,18 +153,26 @@ function _boardPackOpen(){
 function _briefPanelOpen(){
   return typeof isBriefOpen==='function' && isBriefOpen();
 }
+function _yearEndOpen(){
+  return typeof isYearEndOpen==='function' && isYearEndOpen();
+}
 
 /* Facilitator hotkeys: S skip · P pause · F facilitator notes · B board brief ·
-   R restart quarter · Shift+R new game. B mirrors F: it never fires while a text
-   field has focus, while the board pack (report) overlay is open, or during the
-   pregame flow (simulationStarted is false until the game starts). Plain R
-   replays only the current quarter; Shift+R clears the whole year. */
+   R restart quarter · Shift+R new game · Y year end report. B mirrors F: it never
+   fires while a text field has focus, while the board pack (report) overlay is
+   open, or during the pregame flow (simulationStarted is false until the game
+   starts). Plain R replays only the current quarter; Shift+R clears the whole
+   year. The year-end report is terminal and modal over everything: while it is
+   open every other hotkey is inert and only Y closes it. */
 document.addEventListener('keydown',function(event){
   if(!simulationStarted || event.altKey || event.ctrlKey || event.metaKey) return;
   /* Held keys must not re-fire actions (e.g. repeatedly re-opening a modal). */
   if(event.repeat) return;
   if(event.key==='Escape'){
-    if(_facilitatorNotesOpen()){
+    if(_yearEndOpen()){
+      event.preventDefault();
+      closeYearEnd();
+    }else if(_facilitatorNotesOpen()){
       event.preventDefault();
       closeFacilitatorNotes();
     }else if(_briefPanelOpen()){
@@ -175,6 +183,17 @@ document.addEventListener('keydown',function(event){
   }
   if(/^(INPUT|SELECT|TEXTAREA)$/.test(event.target.tagName)) return;
   var key=event.key.toLowerCase();
+  /* The year-end report is terminal and owns the screen outright: it suppresses
+     every other hotkey (S/P/F/B/R), unlike the facilitator and brief overlays
+     which each honour their own toggle key. Only Y closes it. This block is
+     first, so nothing behind the report can be triggered while it is up. */
+  if(_yearEndOpen()){
+    if(key==='y'){
+      event.preventDefault();
+      if(typeof toggleYearEnd==='function') toggleYearEnd();
+    }
+    return;
+  }
   /* While an overlay owns the screen, only the key that opened it is honoured -
      F closes the facilitator notes, B closes the brief. The board pack suppresses
      both. Skip/pause/restart are suppressed so a stray keypress cannot mutate
@@ -210,6 +229,10 @@ document.addEventListener('keydown',function(event){
       event.preventDefault();
       if(event.shiftKey) confirmNewGame();
       else confirmCurrentQuarterRestart();
+      break;
+    case 'y':
+      event.preventDefault();
+      if(typeof toggleYearEnd==='function') toggleYearEnd();
       break;
   }
 });

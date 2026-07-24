@@ -156,6 +156,9 @@ function goToNextReportQuarter(){
     if(advanceAfterDecision(REPORT.data.quarter.id)==='year-complete'){
       $('repDecision').textContent='YEAR COMPLETE: ALL FOUR QUARTERS RECORDED';
       $('repNextQuarter').hidden=true;
+      closeReport();
+      /* Guard with typeof so the game still runs if year-end.js fails to load. */
+      if(typeof openYearEnd==='function') openYearEnd();
       return;
     }
     closeReport();

@@ -40,24 +40,9 @@ function _briefStatusTone(status){
   }
 }
 
-/* Plain-text target descriptor, e.g. "HOLD >= -£3.0m". Money keeps the sign
-   outside the £; index metrics are bare integers; the comparator folds in
-   goodUp so a lower-is-better `end` reads "REACH <=". */
-function _briefTargetText(obj){
-  var def=(typeof getMetricDef==='function') ? getMetricDef(obj.key) : null;
-  var val=(def && def.money)
-    ? ((obj.target<0?'-£':'£')+Math.abs(obj.target).toFixed(1)+'m')
-    : String(obj.target);
-  var op;
-  switch(obj.type){
-    case 'floor':   op='HOLD ≥ '; break;
-    case 'ceiling': op='KEEP ≤ '; break;
-    case 'delta':   op='GAIN ≥ '+(obj.target>=0?'+':''); break;
-    case 'end':     op=(def && def.goodUp===false) ? 'REACH ≤ ' : 'REACH ≥ '; break;
-    default:        op='';
-  }
-  return op+val;
-}
+/* Target descriptor now lives in engine/objectives.js as formatObjectiveTarget,
+   shared with the year-end scorecard so the brief and the scorecard cannot
+   drift. */
 
 function _buildBrief(){
   var root=_briefRoot();
@@ -114,7 +99,7 @@ function _buildBrief(){
         objRow.className='brief-obj';
         meta=document.createElement('div');
         meta.className='brief-obj-meta';
-        _briefLine(meta, 'brief-obj-target', _briefTargetText(obj));
+        _briefLine(meta, 'brief-obj-target', formatObjectiveTarget(obj));
         var pill=document.createElement('span');
         pill.className='brief-status band-'+tone;
         pill.textContent=status;

@@ -1402,6 +1402,114 @@ const feedCount = page => page.$$eval('#eventFeedList .feed-entry', els => els.l
     await page.close();
   }
 
+  /* ---------------- PHASE 5: NEW GAME RESET ---------------- */
+  console.log('\nphase 5 new game:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+
+    const s = await page.evaluate(() => {
+      /* Commit all four quarters programmatically (no playback needed). */
+      function playFullYear() {
+        for (let i = 0; i < 4; i++) {
+          quarterComplete = true;
+          const qId = getCurrentQuarterId();
+          confirmBoardDecision(qId, getCurrentQuarter().options[0].id);
+          advanceAfterDecision(qId);
+        }
+      }
+
+      setBoardRoles(['cfo', 'md']);
+      playFullYear();
+      const afterRunDecisions = GAME.decisions.length;
+
+      /* Populate the live feed so we can prove it is rebuilt, not accumulated. */
+      seekSimulation(QLEN);
+      render();
+      const feedBefore = document.querySelectorAll('#eventFeedList .feed-entry').length;
+
+      /* Open an overlay so we can prove startNewGame closes it. */
+      openBrief();
+      const briefOpenBefore = !document.getElementById('briefRoot').hidden;
+
+      startNewGame();
+
+      const afterReset = {
+        decisions: GAME.decisions.length,
+        alerts: GAME.alerts.length,
+        stats: JSON.stringify(GAME.stats),
+        initial: JSON.stringify(initialMetricStats()),
+        roles: GAME.roles.slice(),
+        quarter: getCurrentQuarterId(),
+        firstQuarter: getFirstQuarterId(),
+        quarterComplete: quarterComplete,
+        alertQueue: _alertQueue.length,
+        feedAfter: document.querySelectorAll('#eventFeedList .feed-entry').length,
+        briefHidden: document.getElementById('briefRoot').hidden,
+        reportOpen: isReportOpen()
+      };
+
+      /* The brief still lists the preserved board after the reset. */
+      openBrief();
+      const briefCards = document.querySelectorAll('#briefRoot .brief-role').length;
+      closeBrief();
+
+      return { afterRunDecisions, feedBefore, briefOpenBefore, afterReset, briefCards };
+    });
+
+    eq(s.afterRunDecisions, 4, 'new game: a full four-quarter run records four decisions');
+    ok(s.briefOpenBefore, 'new game: an overlay is open before the reset');
+    /* 26 */
+    eq(s.afterReset.decisions, 0, 'new game: startNewGame clears every decision');
+    eq(s.afterReset.alerts, 0, 'new game: startNewGame clears the durable alert record');
+    eq(s.afterReset.stats, s.afterReset.initial, 'new game: startNewGame restores the starting stats');
+    /* 27 */
+    eq(JSON.stringify(s.afterReset.roles), JSON.stringify(['cfo', 'md']), 'new game: the board roles are preserved (option a)');
+    eq(s.briefCards, 2, 'new game: the brief still lists the same roles afterwards');
+    /* 28 */
+    ok(s.afterReset.briefHidden, 'new game: startNewGame closes any open overlay');
+    ok(!s.afterReset.reportOpen, 'new game: the board pack is not left open');
+    eq(s.afterReset.quarter, s.afterReset.firstQuarter, 'new game: the sim returns to the first quarter');
+    ok(!s.afterReset.quarterComplete, 'new game: quarterComplete is cleared');
+    /* 29 */
+    eq(s.afterReset.alertQueue, 0, 'new game: the live alert queue is empty after a reset');
+    ok(s.afterReset.feedAfter >= 1 && s.afterReset.feedAfter < s.feedBefore,
+      'new game: the event feed is rebuilt for the fresh quarter, not accumulated from the prior run');
+    ok(page._errors.length === 0, 'new game: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: PLAIN R IS QUARTER-ONLY ---------------- */
+  console.log('\nphase 5 restart quarter vs new game:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(200);
+    /* Commit two quarters, then a plain R must replay only the current quarter
+       and leave the recorded decisions standing. */
+    await page.evaluate(() => {
+      for (let i = 0; i < 2; i++) {
+        quarterComplete = true;
+        const qId = getCurrentQuarterId();
+        confirmBoardDecision(qId, getCurrentQuarter().options[0].id);
+        advanceAfterDecision(qId);
+      }
+      seekSimulation(20);
+      render();
+    });
+    const before = await page.evaluate(() => GAME.decisions.length);
+    await page.keyboard.press('r');            // confirm() is stubbed to true
+    await page.waitForTimeout(150);
+    const after = await page.evaluate(() => ({
+      decisions: GAME.decisions.length,
+      clock: Math.round(clock)
+    }));
+    eq(before, 2, 'restart quarter: two decisions are committed before R');
+    eq(after.decisions, 2, 'restart quarter: plain R does not clear committed decisions');
+    eq(after.clock, 0, 'restart quarter: plain R still resets the quarter clock');
+    ok(page._errors.length === 0, 'restart quarter: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

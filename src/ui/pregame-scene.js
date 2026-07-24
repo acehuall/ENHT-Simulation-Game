@@ -53,8 +53,8 @@ function createPregameScene(canvas){
       a=0.2+0.8*Math.max(0,Math.sin(t*s.speed+s.phase));
       ctx.globalAlpha=a; R('#dfe6f2',s.x,s.y,2,2); ctx.globalAlpha=1;
     }
-    /* blocky moon with notched corners */
-    ctx.fillStyle='rgba(230,233,223,0.10)'; ctx.fillRect(752,42,60,60);
+    /* blocky moon with notched corners (no square halo - a hard-edged glow box
+       reads as an out-of-place shadow against the pixel sky) */
     R('#e6e9df',768,50,28,44); R('#e6e9df',760,58,44,28); R('#e6e9df',764,54,36,36);
     R('#c9cdc0',772,62,6,6); R('#c9cdc0',786,74,8,5); R('#c9cdc0',778,84,5,4);
   }
@@ -138,20 +138,26 @@ function createPregameScene(canvas){
     ctx.fillStyle='rgba(233,180,76,.3)'; ctx.fillRect(x-7,255,14,11);
   }
 
+  /* The ambulance drives along the road below the pavement, faster than the
+     walkers so it visibly overtakes them, then wraps. Scaled to read as a
+     compact van against the pedestrian sprites (~78x26) rather than the
+     oversized block it used to be. */
   function drawAmbulance(t){
-    var on=((t*2.2)%1)<0.5;
-    ctx.fillStyle='rgba(0,0,0,0.35)'; ctx.fillRect(676,398,146,6);
-    R('#20242f',678,354,116,44); R('#e8ecf5',680,356,112,40);
-    R('#20242f',792,362,28,36); R('#e8ecf5',794,364,24,32);
-    R('#9fc4d8',796,366,14,12);
-    R('#9fc4d8',686,362,26,12); R('#9fc4d8',718,362,20,12);
-    R('#23c4b4',680,382,138,7);                       /* trust stripe */
-    R('#e05252',752,362,6,16); R('#e05252',747,367,16,6); /* red cross */
-    R('#10131c',700,392,16,14); R('#3a415a',705,397,6,5);
-    R('#10131c',764,392,16,14); R('#3a415a',769,397,6,5);
-    R('#2a3145',798,359,12,5);
-    if(on){ ctx.fillStyle='rgba(106,176,255,.3)'; ctx.fillRect(793,346,22,14); R('#6ab0ff',799,351,10,7); }
-    else R('#31517a',799,351,10,7);
+    var range=W+180;
+    var x=Math.round((((0.15*range+t*38)%range)+range)%range-120);
+    var y=356, on=((t*2.4)%1)<0.5;
+    ctx.fillStyle='rgba(0,0,0,0.30)'; ctx.fillRect(x+2,y+28,76,4); /* soft ground shadow */
+    R('#20242f',x,y,64,26); R('#e8ecf5',x+2,y+2,60,22);            /* box body */
+    R('#20242f',x+62,y+8,16,18); R('#e8ecf5',x+64,y+10,12,14);     /* cab (front, right) */
+    R('#9fc4d8',x+66,y+12,8,7);                                    /* windscreen */
+    R('#9fc4d8',x+6,y+5,12,8); R('#9fc4d8',x+22,y+5,10,8);         /* rear windows */
+    R('#23c4b4',x+2,y+18,60,4);                                    /* trust stripe */
+    R('#e05252',x+40,y+4,5,12); R('#e05252',x+36,y+7,13,5);        /* red cross */
+    R('#10131c',x+12,y+24,11,7); R('#3a415a',x+15,y+26,5,4);       /* rear wheel */
+    R('#10131c',x+46,y+24,11,7); R('#3a415a',x+49,y+26,5,4);       /* front wheel */
+    R('#2a3145',x+64,y+5,12,4);                                    /* light-bar base */
+    if(on){ ctx.fillStyle='rgba(106,176,255,.3)'; ctx.fillRect(x+62,y-3,18,11); R('#6ab0ff',x+66,y+1,10,5); }
+    else R('#31517a',x+66,y+1,10,5);
   }
 
   function drawWalker(w,t){

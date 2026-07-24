@@ -5,32 +5,29 @@
    endStats every time.
 ------------------------------------------------------------------------ */
 var OUTCOME_DRAMA = {
+  /* Opening baseline: the ward is running normally, so these beats carry no
+     offsets. With DEFAULT_OUTCOME's endStats matching its startStats the
+     compiler resolves every effect to zero, keeping Q1 broadly flat (no
+     spikes, steps or drift) as a stable reference before the first decision. */
   status_quo: {
     beats:[
       {
         slot:'pressure',
-        name:'Norovirus pressure rises',
-        toast:'&#9888; Ward pressure rises as sickness bites',
-        weights:{waiting:.7, patsat:.4, morale:.4, safety:.4, rep:.5},
-        offsets:{waiting:+5, patsat:-3, morale:-4, safety:-3, rep:-1}
+        name:'Ordinary ward activity',
+        toast:'Ward activity is steady'
       },
       {
         slot:'response',
-        name:'Temporary cover stabilises flow',
-        toast:'&#10010; Temporary cover stabilises the ward',
-        weights:{budget:.8, waiting:.2, patsat:.5, morale:.5, safety:.5, rep:.5},
-        offsets:{waiting:-5, patsat:+3, morale:+4, safety:+3, rep:+1}
+        name:'Baseline holds',
+        toast:'Conditions hold at their baseline'
       },
       {
         slot:'consequence',
-        name:'Winter invoice lands',
-        toast:'&#163; Winter cover costs hit the budget',
-        weights:{budget:.2}
+        name:'Stable reference point',
+        toast:'Metrics stay level ahead of the board decision'
       }
     ],
-    visuals:[
-      {slot:'response', type:'extraStaff', role:'nurse', count:2, duration:18}
-    ]
+    visuals:[]
   },
 
   hire_temporary_staff: {

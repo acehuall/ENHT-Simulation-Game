@@ -385,14 +385,28 @@ function _perfRowList(section){
 function _perfOperationsPanel(data){
   var ctx=_snapshotCtx(data.snapshot);
   var section=getReportSection('operations', data.snapshot.endStats, ctx);
+  /* A trend needs at least two committed points. Q1 legitimately has a single
+     datapoint (no decision recorded yet), so show an explicit insufficient-data
+     state rather than a degenerate single-point chart. */
+  var trend=hasWaitTrendData(data)
+    ? '<div class="rep-perf-chartwrap"><canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas></div>'
+    : '<p class="rep-perf-nodata">Insufficient data for a trend: only one quarter has been recorded so far. '+
+      'The waiting-times trend appears once a second quarter closes.</p>';
   return [
     '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===1?'':' hidden')+' data-perf-panel="1">',
       '<h4>Waiting-times trend</h4>',
-      '<canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas>',
+      trend,
       _perfRowList(section),
       '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
     '</div>'
   ].join('');
+}
+
+/* True once there are at least two points to plot (the year-opening value plus
+   one committed quarter close). Shared by the panel builder and the chart
+   renderer so they agree on when a trend exists. */
+function hasWaitTrendData(data){
+  return !!(data && data.snapshot && data.snapshot.history && data.snapshot.history.length>=1);
 }
 
 function _perfWorkforcePanel(data){
@@ -459,21 +473,19 @@ function _fillReportPerformance(data){
    Lower is better, so the series is plotted directly on a 0..100 index. */
 function _drawPerformanceCharts(data){
   var cv=$('repWaitTrend');
-  if(!cv) return;
+  /* The canvas is only emitted when there is a real trend to draw (see
+     hasWaitTrendData); the single-datapoint case renders an insufficient-data
+     note instead, so there is nothing to plot here. */
+  if(!cv || !hasWaitTrendData(data)) return;
   var g=cv.getContext('2d');
   var h=data.snapshot.history, labels=[], values=[], i;
 
-  if(h.length){
-    /* opening value of the year, then each committed quarter's close */
-    values.push(h[0].startStats.waiting);
-    labels.push('OPEN');
-    for(i=0;i<h.length;i++){
-      values.push(h[i].endStats.waiting);
-      labels.push(h[i].quarterId);
-    }
-  }else{
-    values.push(data.snapshot.endStats.waiting);
-    labels.push('NOW');
+  /* opening value of the year, then each committed quarter's close */
+  values.push(h[0].startStats.waiting);
+  labels.push('OPEN');
+  for(i=0;i<h.length;i++){
+    values.push(h[i].endStats.waiting);
+    labels.push(h[i].quarterId);
   }
 
   var W=480, H=180;

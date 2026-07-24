@@ -4,8 +4,8 @@ var QUARTERS = [
   {
     id:'Q1',
     label:'Q1',
-    title:'Infection Pressure',
-    displayName:'Q1 - INFECTION PRESSURE',
+    title:'Opening Position',
+    displayName:'Q1 - OPENING POSITION',
     scenario:'Norovirus has closed two bays on Ward 4 while emergency demand rises. The board must protect safety without losing grip on finance, waiting times and staff morale.',
     issue:{
       tag:'PRIORITY ESCALATION - DECISION REQUIRED',

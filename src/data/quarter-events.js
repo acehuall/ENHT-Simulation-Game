@@ -7,28 +7,28 @@
 var QUARTER_EVENT_IDS = ['Q1', 'Q2', 'Q3', 'Q4'];
 
 var QUARTER_EVENTS = {
+  /* Q1 is the opening baseline: an ordinary, functioning hospital shown before
+     the board takes its first decision. It deliberately carries no illness
+     tint, no ill-tinted surge and no incident flash - the infection-pressure
+     scenario is what the board decides on, and its consequences are dramatized
+     from Q2 once a decision resolves. */
   Q1: {
     id: 'Q1',
     label: 'Q1',
-    eventName: 'Infection Pressure',
-    displayName: 'Q1 - INFECTION PRESSURE',
-    bannerLine: 'INFECTION PRESSURE',
-    patientSpawnMult: 1.5,
-    patientIllnessTint: true,
+    eventName: 'Opening Position',
+    displayName: 'Q1 - OPENING POSITION',
+    bannerLine: 'OPENING POSITION',
+    patientSpawnMult: 1.0,
+    patientIllnessTint: false,
     patientIllness: {
-      spawnState: 'ill',
-      untreatedTint: 0.68,
-      inTreatmentTint: 0.32,
-      treatedTint: 0.12,
       treatmentCapacityAvailable: true,
       treatmentZoneTiles: ['v', 'w', 'i', 'g']
     },
     visualNPCs: [],
     ambientVisuals: [
-      {type:'patientSurge', t0:0, t1:45, mult:1.5, tint:'ill'},
-      {type:'wardIncidentFlash', t0:27, t1:33, tile:[7,14], severity:'medium'}
+      {type:'patientSurge', t0:0, t1:45, mult:1.2}
     ],
-    pressureEvents: ['norovirus_outbreak', 'ward_4_incident'],
+    pressureEvents: [],
     reportContentKey: 'infectionPressure'
   },
   Q2: {

@@ -36,18 +36,21 @@
 #scan{position:absolute; inset:0; pointer-events:none; mix-blend-mode:multiply;
       background:repeating-linear-gradient(0deg, rgba(255,255,255,0) 0 2px, rgba(0,0,0,.18) 2px 4px);}
 
-.prog{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--dim); letter-spacing:1px;}
+.prog{display:flex; align-items:center; gap:8px; font-size:11px; color:var(--dim); letter-spacing:1px; margin-bottom:8px;}
 .pq{color:var(--dim);}
 .prog #ptime{width:58px; text-align:right; color:var(--ink);}
 .pbar{flex:1; height:24px; border:2px solid var(--line); background:#0a0c13; position:relative;}
 .pbar i{position:absolute; left:0; top:4px; height:10px; width:0%; background:var(--teal); display:block;}
 .pbar input{position:absolute; inset:0; width:100%; height:100%; margin:0; cursor:pointer; opacity:0;}
-.pbar .monthmark{position:absolute; top:2px; bottom:11px; width:1px; background:rgba(195,202,222,.35); pointer-events:none;}
+/* Month labels are centred under each month and act as the markers themselves.
+   The old vertical tick lines read as stray leftover styling, so there is no
+   rule/background here. Labels sit below the bar so the scrubber never hides
+   them. */
+.pbar .monthmark{position:absolute; width:0; pointer-events:none;}
 .pbar .monthmark:after{
-  content:attr(data-label); position:absolute; left:0; bottom:-9px; transform:translateX(-50%);
-  color:var(--dim); font-size:8px; line-height:1; letter-spacing:1px;
+  content:attr(data-label); position:absolute; left:0; bottom:-14px; transform:translateX(-50%);
+  color:var(--dim); font-size:8px; line-height:1; letter-spacing:1px; white-space:nowrap;
 }
-.pbar .monthmark-end:after{transform:translateX(-100%);}
 .feed{border:2px solid var(--line); background:#0a0c13;}
 .feed-head{font-size:9px; color:var(--dim); letter-spacing:2px; padding:5px 8px;
            border-bottom:2px solid var(--line);}
@@ -359,7 +362,12 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 
 .rep-perf-note{font-size:11px; color:#4a5470; margin:6px 0 10px; line-height:1.4;}
 .rep-perf-band{font-weight:bold; letter-spacing:1px;}
-.rep-perf-chart{width:100%; height:auto; border:2px solid #141b30; background:#fbfcfe; image-rendering:auto; margin-bottom:10px;}
+/* Wrapper keeps the chart inside the panel: it scales to fit, and if anything
+   ever exceeds the width it scrolls within this box instead of pushing the
+   whole board pack wide. */
+.rep-perf-chartwrap{max-width:100%; overflow-x:auto; margin-bottom:10px;}
+.rep-perf-chart{display:block; width:100%; max-width:100%; height:auto; border:2px solid #141b30; background:#fbfcfe; image-rendering:auto;}
+.rep-perf-nodata{font-size:11px; color:#4a5470; line-height:1.4; border:2px dashed #b6c0d4; background:#eef2f8; padding:14px; text-align:center; margin-bottom:10px;}
 .rep-perf-alerts{display:flex; flex-direction:column; gap:5px; margin:8px 0;}
 .rep-perf-alert{border-left:4px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:6px 9px; font-size:11px; line-height:1.4;}
 .rep-perf-alert b{display:block; letter-spacing:.5px;}

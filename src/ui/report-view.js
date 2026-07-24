@@ -69,69 +69,6 @@ function _reportImpactChips(effects){
   return chips;
 }
 
-/* Live status -> band tone class (shared phase-1 contract, paper-legible inks
-   below). Mirrors the brief panel's mapping. */
-function _pipTone(status){
-  switch(status){
-    case 'BREACHED': return 'critical';
-    case 'AT RISK':  return 'warn';
-    case 'MET':      return 'good';
-    default:         return 'neutral';
-  }
-}
-function _pipStatusLabel(status){
-  return status.toLowerCase();
-}
-function _pipDelta(def, v){
-  if(def.money) return (v>0?'+':(v<0?'−':''))+Math.abs(v).toFixed(1);
-  return (v>0?'+':(v<0?'−':''))+String(Math.abs(v));
-}
-
-/* Per-role impact pips for one option, e.g. "CFO: budget -1.8 (at risk)".
-   Rendered for the SELECTED board roles only, one pip per (role, metric) the
-   option actually moves, showing the projected objective status if the board
-   took this option now. Renders nothing when no roles are selected, so the
-   existing layout is never disturbed. */
-function _reportRolePips(effects){
-  if(typeof getBoardRoles!=='function') return '';
-  var roles=getBoardRoles();
-  if(!roles.length || !effects) return '';
-  var history=(typeof getStatsHistory==='function') ? getStatsHistory() : [];
-  var current=(typeof GAME!=='undefined') ? GAME.stats : null;
-  var startStats=history.length ? history[0].startStats : current;
-  var projected=(typeof applyMetricEffects==='function' && current)
-    ? applyMetricEffects(current, effects) : current;
-  /* worst status ranks first so a (role,metric) pip reflects its riskiest objective */
-  var rank={BREACHED:0, 'AT RISK':1, 'ON TRACK':2, MET:3};
-  var pips=[], i, j, role, obj, eff, def, seen, key, status, worst;
-  for(i=0;i<roles.length;i++){
-    role=roles[i];
-    seen={};
-    for(j=0;j<role.objectives.length;j++){
-      obj=role.objectives[j];
-      key=obj.key;
-      eff=effects[key];
-      if(!eff) continue;                 /* only metrics this option moves */
-      status=(typeof getObjectiveProjectedStatus==='function')
-        ? getObjectiveProjectedStatus(obj, history, startStats, projected) : 'ON TRACK';
-      if(seen.hasOwnProperty(key)){
-        if(rank[status]<rank[seen[key]]) seen[key]=status;  /* keep the worse */
-      }else{
-        seen[key]=status;
-      }
-    }
-    for(key in seen){
-      if(!seen.hasOwnProperty(key)) continue;
-      def=getMetricDef(key);
-      worst=seen[key];
-      pips.push('<i class="rep-pip band-'+_pipTone(worst)+'">'+
-        escapeHTML(role.id.toUpperCase()+': '+def.label.toLowerCase()+' '+
-          _pipDelta(def, effects[key])+' ('+_pipStatusLabel(worst)+')')+'</i>');
-    }
-  }
-  return pips.length ? '<div class="rep-pips">'+pips.join('')+'</div>' : '';
-}
-
 function _metricDisplay(metric, value){
   return metric.money ? fmtMoney(value).replace('&pound;','GBP').replace('&#8722;','-') : String(Math.round(value));
 }
@@ -249,20 +186,33 @@ function _fillReportPage2(data){
   ].join('');
 }
 
+/* The one finance figure legitimately knowable before the decision: the
+   resource the option commits this quarter. This is NOT read from o.effects
+   (the engine's outcome deltas) - it is the authored `cost` fact, kept separate
+   so the card shows a commitment, never a projected outcome. Expenditure follows
+   the game-wide finance sign convention: an explicit minus on a spend, and a
+   plain "no new spend" when nothing is committed. */
+function _optionCostText(cost){
+  if(!cost || cost<0.05){
+    return '<span class="rep-cost-value neutral">No new spend</span>';
+  }
+  return '<span class="rep-cost-value spend">&#8722;&pound;'+cost.toFixed(1)+'m</span>';
+}
+
+/* Each option reduces to four scannable fields: title, one-line summary, the
+   cost commitment, and a single qualitative trade-off line. No projected
+   deltas, forecast values or per-role status pips appear here - those read the
+   outcome before it is chosen and are deliberately gone. */
 function _fillReportPage3(data){
-  var html=[], i, o, chips;
+  var html=[], i, o;
   for(i=0;i<data.options.length;i++){
     o=data.options[i];
-    chips=_reportImpactChips(o.effects);
     html.push('<button type="button" class="rep-option" data-index="'+i+'">'+
       '<h4>'+escapeHTML(o.label+' - '+o.title)+'</h4>'+
-      '<p>'+escapeHTML(o.description)+'</p>'+
-      '<div class="rep-procon">'+
-        o.pros.map(function(p){ return '<span class="good">+ '+escapeHTML(p)+'</span>'; }).join('')+
-        o.cons.map(function(c){ return '<span class="bad">- '+escapeHTML(c)+'</span>'; }).join('')+
-      '</div>'+
-      '<div class="rep-chips">'+chips.map(function(ch){ return '<i class="'+ch.tone+'">'+escapeHTML(ch.text)+'</i>'; }).join('')+'</div>'+
-      _reportRolePips(o.effects)+
+      '<p class="rep-option-summary">'+escapeHTML(o.description)+'</p>'+
+      '<div class="rep-option-cost"><span class="rep-cost-label">Cost this quarter</span>'+
+        _optionCostText(o.cost)+'</div>'+
+      '<div class="rep-option-tradeoff">'+escapeHTML(o.tradeoff||'')+'</div>'+
     '</button>');
   }
   return [
@@ -351,35 +301,65 @@ function _perfTabHeaders(data){
   return '<div class="rep-perf-tabs" role="tablist">'+out.join('')+'</div>';
 }
 
+/* Finance figures follow one game-wide convention so income and expenditure can
+   never be misread: income is a plain positive amount, expenditure carries an
+   explicit minus. Colour (fin-income / fin-expenditure) and the panel's layout
+   divider each carry the same distinction independently, so the split survives
+   greyscale and colour-blindness. */
+function _finMoney(v, kind){
+  var mag='&pound;'+Math.abs(v).toFixed(1)+'m';
+  return kind==='expenditure' ? '&#8722;'+mag : mag;
+}
+
+/* Variance shown by favourability, not raw arithmetic sign: a favourable
+   movement (income over-recovery OR an underspend) reads "+", an adverse one
+   reads "-", so the sign always agrees with the tone colour for both kinds. */
+function _finVariance(r){
+  var fav=r.kind==='income' ? r.variance : -r.variance;
+  var sign=fav>0.05?'+':(fav<-0.05?'&#8722;':'');
+  return sign+'&pound;'+Math.abs(fav).toFixed(1)+'m';
+}
+
+function _finRow(r){
+  var cls=r.kind==='income'?'fin-income':'fin-expenditure';
+  return '<tr class="rep-fin-line '+cls+'"><td>'+escapeHTML(r.label)+'</td>'+
+    '<td>'+_finMoney(r.plan,r.kind)+'</td>'+
+    '<td>'+_finMoney(r.value,r.kind)+'</td>'+
+    '<td class="rep-perf-cell band-'+r.tone+'">'+_finVariance(r)+'</td></tr>';
+}
+
 function _perfFinancePanel(data){
   var ctx=_snapshotCtx(data.snapshot);
   var section=getReportSection('finance', data.snapshot.endStats, ctx);
   var budget=data.snapshot.endStats.budget;
   var band=getMetricBand('budget', budget);
   var near=getNearestThreshold('budget', budget);
-  var rows=[], i, r, cls;
+  var income=[], spend=[], net=null, i, r;
   for(i=0;i<section.rows.length;i++){
     r=section.rows[i];
-    if(r.id==='surplus'){
-      rows.push('<tr class="rep-perf-surplus"><td>'+escapeHTML(r.label)+'</td>'+
-        '<td></td><td class="rep-perf-cell band-'+r.tone+'">'+_perfMoney(r.value,false)+'</td>'+
-        '<td></td></tr>');
-      continue;
-    }
-    cls=r.kind==='income'?'income':'spend';
-    rows.push('<tr class="rep-perf-'+cls+'"><td>'+escapeHTML(r.label)+'</td>'+
-      '<td>'+_perfMoney(r.plan,false)+'</td>'+
-      '<td>'+_perfMoney(r.value,false)+'</td>'+
-      '<td class="rep-perf-cell band-'+r.tone+'">'+_perfMoney(r.variance,true)+'</td></tr>');
+    if(r.id==='surplus'){ net=r; continue; }
+    if(r.kind==='income') income.push(_finRow(r));
+    else spend.push(_finRow(r));
   }
+  /* The net position is the number a board acts on, so it is the dominant
+     figure: its own footer row, below both blocks, sign-carrying and large. */
+  var netRow=net ? ('<tr class="rep-fin-net band-'+net.tone+'"><td>'+escapeHTML(net.label)+'</td>'+
+    '<td></td><td class="rep-perf-cell band-'+net.tone+'">'+_perfMoney(net.value,false)+'</td>'+
+    '<td></td></tr>') : '';
   var bandLine='BUDGET '+(band?escapeHTML(band.label):'')+
     (near?(' &middot; '+Math.abs(near.distance).toFixed(1)+'m to '+escapeHTML(near.threshold.title)):'');
   return [
     '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===0?'':' hidden')+' data-perf-panel="0">',
       '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">'+bandLine+'</div>',
-      '<table class="rep-perf-table">',
+      '<table class="rep-perf-table rep-fin-table">',
         '<thead><tr><th>Line</th><th>Plan</th><th>Actual</th><th>Variance</th></tr></thead>',
-        '<tbody>'+rows.join('')+'</tbody>',
+        '<tbody>',
+          '<tr class="rep-fin-subhead fin-income"><td colspan="4">Income</td></tr>',
+          income.join(''),
+          '<tr class="rep-fin-subhead fin-expenditure"><td colspan="4">Expenditure</td></tr>',
+          spend.join(''),
+        '</tbody>',
+        '<tfoot>'+netRow+'</tfoot>',
       '</table>',
       '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
     '</div>'

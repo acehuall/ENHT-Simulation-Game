@@ -1368,48 +1368,59 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
-  /* ---------------- PHASE 4: OPTIONS-PAGE ROLE PIPS ---------------- */
-  console.log('\nphase 4 options pips:');
+  /* ---------------- OPTIONS PAGE: NO PROJECTED OUTCOMES ----------------
+     The redesign strips every forward-looking stat from the decision cards.
+     Each card reduces to title, one-line summary, a cost commitment and a
+     single qualitative trade-off line - and role pips / impact chips must not
+     render even when a board role is selected (which used to drive them). */
+  console.log('\noptions page (no projections):');
   {
     const page = await freshPage(browser);
     await page.waitForTimeout(200);
 
-    /* With a role selected, the options page renders pips naming that role. */
+    /* Select a role - previously this made per-role projection pips appear. */
     await page.evaluate(() => { paused = true; setBoardRoles(['cfo']); });
     await page.keyboard.press('s');
     await page.waitForTimeout(200);
     await page.click('#repNext'); // results -> performance
     await page.click('#repNext'); // performance -> issue
     await page.click('#repNext'); // issue -> options
-    const withRoles = await page.evaluate(() => {
-      const pips = Array.from(document.querySelectorAll('.rep-pip')).map(p => p.textContent);
+    const opts = await page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.rep-option'));
       return {
         pageId: REPORT_PAGES[REPORT.page].id,
-        count: pips.length,
-        cfoPip: pips.some(t => t.indexOf('CFO:') === 0),
-        options: document.querySelectorAll('.rep-option').length
-      };
-    });
-    eq(withRoles.pageId, 'options', 'pips: paged to the options page');
-    ok(withRoles.count > 0, 'pips: options page renders role pips when a role is selected');
-    ok(withRoles.cfoPip, 'pips: a pip is labelled for the selected role (CFO)');
-
-    /* With no roles selected, no pips render and the option cards survive. */
-    const withoutRoles = await page.evaluate(() => {
-      closeReport();
-      setBoardRoles([]);
-      openReport();
-      REPORT.page = REPORT_PAGES.length - 1;
-      _syncReportPages();
-      return {
+        options: cards.length,
         pips: document.querySelectorAll('.rep-pip').length,
-        options: document.querySelectorAll('.rep-option').length
+        /* impact chips only exist under the resolved-decision outcome, never on a card */
+        cardChips: cards.reduce((n, c) => n + c.querySelectorAll('.rep-chips').length, 0),
+        procon: document.querySelectorAll('.rep-procon').length,
+        costs: document.querySelectorAll('.rep-option .rep-cost-value').length,
+        tradeoffs: Array.from(document.querySelectorAll('.rep-option .rep-option-tradeoff'))
+          .filter(t => t.textContent.trim().length > 0).length,
+        /* a spend option shows the expenditure minus; the first card is the funded hire */
+        firstCostSpend: (document.querySelector('.rep-option .rep-cost-value.spend') || {}).textContent || ''
       };
     });
-    eq(withoutRoles.pips, 0, 'pips: no pips render when no roles are selected');
-    eq(withoutRoles.options, withRoles.options, 'pips: option cards render unchanged with no roles');
+    eq(opts.pageId, 'options', 'options: paged to the options page');
+    ok(opts.options === 4, 'options: four option cards render');
+    eq(opts.pips, 0, 'options: no projected role pips render even with a role selected');
+    eq(opts.cardChips, 0, 'options: no projected impact chips render on the cards');
+    eq(opts.procon, 0, 'options: pros/cons list is gone from the decision cards');
+    eq(opts.costs, opts.options, 'options: every card shows a cost commitment figure');
+    eq(opts.tradeoffs, opts.options, 'options: every card shows a qualitative trade-off line');
+    ok(opts.firstCostSpend.charCodeAt(0) === 0x2212 && opts.firstCostSpend.indexOf('£') > 0,
+      'options: a funded option shows expenditure with an explicit minus');
 
-    ok(page._errors.length === 0, 'options pips: no console/page errors');
+    /* The decision still resolves and applies its effect after all this. */
+    const resolved = await page.evaluate(() => {
+      const before = GAME.stats.budget;
+      _chooseReportOption(0);
+      return { locked: REPORT.locked, changed: GAME.stats.budget !== before };
+    });
+    ok(resolved.locked, 'options: choosing an option locks in the decision');
+    ok(resolved.changed, 'options: the chosen effect still applies to the running stats');
+
+    ok(page._errors.length === 0, 'options page: no console/page errors');
     await page.close();
   }
 

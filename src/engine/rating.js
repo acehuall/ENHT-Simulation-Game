@@ -33,12 +33,18 @@ var RATING_MODEL = {
     {test:'lte', at:-3.0, delta:-10,
      line:'Closing deficit of -£3.0m or worse: -10.'}     /* deficit <= -£3m */
   ],
-  /* Rebased for direction-normalised waiting - see the header. Starting stats
-     score 56.1, comfortably inside GOOD with room both ways. Ordered best to
-     worst; a score falls in the FIRST band whose `min` it meets. */
+  /* Rebased for direction-normalised waiting (see the header) and then
+     CALIBRATED against all 256 legal decision paths so every band is genuinely
+     reachable, not just advertised. Over the 256 paths the score runs 38.7-69.1,
+     so the boundaries were lowered (OUTSTANDING 72->64, GOOD 52->50) and the
+     option effect spread widened together, rather than only moving 72 down.
+     Starting stats still score 56.1, comfortably inside GOOD with room both
+     ways. The exhaustive reachability test (tests/ui.test.js) is the guard: it
+     fails if any band or cap becomes unreachable. Ordered best to worst; a score
+     falls in the FIRST band whose `min` it meets. */
   bands:[
-    {min:72, id:'outstanding', label:'OUTSTANDING', tone:'great', stamp:'★ OUTSTANDING'},
-    {min:52, id:'good',        label:'GOOD',        tone:'good',  stamp:'GOOD'},
+    {min:64, id:'outstanding', label:'OUTSTANDING', tone:'great', stamp:'★ OUTSTANDING'},
+    {min:50, id:'good',        label:'GOOD',        tone:'good',  stamp:'GOOD'},
     {min:34, id:'requires',    label:'REQUIRES IMPROVEMENT', tone:'warn', stamp:'REQUIRES IMPROVEMENT'},
     {min:-Infinity, id:'inadequate', label:'INADEQUATE', tone:'critical', stamp:'INADEQUATE'}
   ],
@@ -53,7 +59,7 @@ var RATING_MODEL = {
     {id:'safety_breach', at:30, capTo:'inadequate',
      line:'Safety closed below 30. Automatic Inadequate.'},
     {id:'deficit_severe', at:-6.0, capTo:'requires',
-     line:'Deficit worse than -£6.0m.'}
+     line:'Deficit worse than -£6.0m.'}   /* reachable: budget range widened to -8 in phase 5 */
   ]
 };
 

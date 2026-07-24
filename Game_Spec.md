@@ -161,7 +161,7 @@ Simulation internals: `requestAnimationFrame` with delta-time; agents advance al
 
 ## 7. Stats & Scoring System
 
-Six core stats. All 0–100 except Budget (£m, −10 to +10):
+Six core stats. All 0–100 except Budget (£m, **−8 to +2** as authored in `scenario-data.js`; widened from −5 in phase 5 so the −£6m deficit cap is genuinely reachable rather than sitting outside the valid range):
 
 | Stat | Start | What moves it | How the sim shows it |
 |---|---|---|---|
@@ -190,12 +190,29 @@ Six core stats. All 0–100 except Budget (£m, −10 to +10):
 
 | Score | Rating | Stamp colour |
 |---|---|---|
-| ≥ 72 | ★ OUTSTANDING | Teal |
-| 52–71 | GOOD | Green |
-| 34–51 | REQUIRES IMPROVEMENT | Amber |
+| ≥ 64 | ★ OUTSTANDING | Teal |
+| 50–63 | GOOD | Green |
+| 34–49 | REQUIRES IMPROVEMENT | Amber |
 | < 34 | INADEQUATE | Red |
 
-Sanity check: with waiting direction-corrected, starting stats score **56.1** — `0.25·66 + 0.20·(100−68) + 0.20·63 + 0.20·58 + 0.15·60` — solidly *Good* under the rebased bands, with headroom to climb or crash. (The old table's 63.3 only held by scoring a near-critical access position as above-average; the bands are rebased so the design intent — "starting stats score solidly Good" — is preserved rather than the arithmetic.) A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
+Sanity check: with waiting direction-corrected, starting stats score **56.1** — `0.25·66 + 0.20·(100−68) + 0.20·63 + 0.20·58 + 0.15·60` — solidly *Good*, with headroom to climb or crash.
+
+**Calibrated against all 256 legal decision paths (phase 5).** The bands and the option-effect spread were tuned *together* — boundaries lowered (OUTSTANDING 72→64, GOOD 52→50) **and** the effects widened — rather than only sliding a number, so every advertised rating and every cap is actually reachable. Over the 256 four-quarter paths:
+
+| | Reachable | Notes |
+|---|---|---|
+| Score range | 39.5 – 69.1 | (median ≈ 54) |
+| ★ OUTSTANDING (≥64) | 9 paths | balanced investment that keeps the deficit in check |
+| GOOD (50–63) | 165 paths | the broad middle |
+| REQUIRES (34–49) | 79 paths | includes paths capped down from a higher raw score |
+| INADEQUATE (<34) | 3 paths | reached via the safety-breach cap (see below) |
+| `core_stat_low` cap | 21 paths | mostly high waiting (rating-space < 25) |
+| `safety_breach` cap | 3 paths | safety closes below 30 (down to 25) |
+| `deficit_severe` cap | 4 paths | budget closes at −6 to −6.8 |
+| budget +£1 surplus (+5) | 9 paths | reachable via cost-saving choices |
+| budget −£3 deficit (−10) | 84 paths | reachable via investment |
+
+INADEQUATE is reached by *breaching safety*, not by being uniformly mediocre — a deliberate design point, and the sustainability lesson made mechanical: a board can post respectable headline numbers and still be rated Inadequate because it let clinical safety collapse. `tests/ui.test.js` enumerates every path on every run and fails if any band or cap becomes unreachable, so this table cannot silently rot. A balanced-but-unspectacular run lands *Good*; *Outstanding* requires accepting real pain somewhere and managing it.
 
 ---
 

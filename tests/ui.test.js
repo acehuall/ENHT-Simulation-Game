@@ -827,7 +827,7 @@ async function driveToYearEnd(page, roles) {
       let maxErr = 0, maxErrOverride = 0;
       REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
       const overrideCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
-      for (let b = -5; b <= 2.00001; b += 0.1) {
+      for (let b = -8; b <= 2.00001; b += 0.1) {
         const budget = Math.round(b * 10) / 10;
         const stats = Object.assign(initialMetricStats(), { budget });
         maxErr = Math.max(maxErr, Math.abs(deriveIncomeExpenditure(stats, null).surplus - budget));
@@ -1524,6 +1524,120 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- PHASE 5: EXHAUSTIVE 256-PATH REACHABILITY ---------------- */
+  console.log('\nphase 5 reachability (all 256 paths):');
+  {
+    const page = await freshPage(browser);
+    const s = await page.evaluate(() => {
+      const bandCount = { outstanding: 0, good: 0, requires: 0, inadequate: 0 };
+      const capReach = { core_stat_low: 0, safety_breach: 0, deficit_severe: 0 };
+      const adjReach = { plus5: 0, minus10: 0, zero: 0 };
+      const example = {};                 // first path found for each rating
+      let min = Infinity, max = -Infinity, minPath = null, maxPath = null, n = 0;
+
+      function rec(qi, stats, ids) {
+        if (qi === QUARTERS.length) {
+          n++;
+          const rt = computeTrustRating(stats);
+          bandCount[rt.band.id] = (bandCount[rt.band.id] || 0) + 1;
+          if (!example[rt.band.id]) example[rt.band.id] = ids.join('');
+          rt.caps.forEach(c => { if (capReach[c.cap.id] != null) capReach[c.cap.id]++; });
+          if (rt.adjustment.amount > 0) adjReach.plus5++;
+          else if (rt.adjustment.amount < 0) adjReach.minus10++;
+          else adjReach.zero++;
+          if (rt.score < min) { min = rt.score; minPath = ids.join(''); }
+          if (rt.score > max) { max = rt.score; maxPath = ids.join(''); }
+          return;
+        }
+        const opts = QUARTERS[qi].options;
+        for (let o = 0; o < opts.length; o++) {
+          rec(qi + 1, applyMetricEffects(stats, opts[o].effects), ids.concat(opts[o].label));
+        }
+      }
+      rec(0, initialMetricStats(), []);
+      return { n, min: +min.toFixed(1), max: +max.toFixed(1), minPath, maxPath, bandCount, capReach, adjReach, example };
+    });
+
+    /* Record the calibration for the log (the user asked these be recorded). */
+    console.log('    paths: ' + s.n);
+    console.log('    score range: ' + s.min + ' (' + s.minPath + ')  ..  ' + s.max + ' (' + s.maxPath + ')');
+    console.log('    paths per rating: ' + JSON.stringify(s.bandCount));
+    console.log('    cap reachability: ' + JSON.stringify(s.capReach));
+    console.log('    budget adjustment reachability: ' + JSON.stringify(s.adjReach));
+    console.log('    example path per rating: ' + JSON.stringify(s.example));
+
+    eq(s.n, 256, 'reachability: every one of the 256 legal decision paths is enumerated');
+
+    /* Every advertised rating is intentionally reachable (>=1 path each). */
+    ok(s.bandCount.outstanding >= 1, 'reachability: OUTSTANDING is reachable (' + s.bandCount.outstanding + ' paths)');
+    ok(s.bandCount.good >= 1, 'reachability: GOOD is reachable (' + s.bandCount.good + ' paths)');
+    ok(s.bandCount.requires >= 1, 'reachability: REQUIRES IMPROVEMENT is reachable (' + s.bandCount.requires + ' paths)');
+    ok(s.bandCount.inadequate >= 1, 'reachability: INADEQUATE is reachable (' + s.bandCount.inadequate + ' paths)');
+
+    /* Every cap is reachable - none is dead (the -£6m cap was impossible before
+       the budget range was widened). */
+    ok(s.capReach.core_stat_low >= 1, 'reachability: the core-stat-low cap fires on some path (' + s.capReach.core_stat_low + ')');
+    ok(s.capReach.safety_breach >= 1, 'reachability: the safety-breach cap fires on some path (' + s.capReach.safety_breach + ')');
+    ok(s.capReach.deficit_severe >= 1, 'reachability: the -£6m deficit cap fires on some path (' + s.capReach.deficit_severe + ')');
+
+    /* Both budget adjustments are reachable. */
+    ok(s.adjReach.plus5 >= 1, 'reachability: the +£1m surplus adjustment is reachable (' + s.adjReach.plus5 + ')');
+    ok(s.adjReach.minus10 >= 1, 'reachability: the -£3m deficit adjustment is reachable (' + s.adjReach.minus10 + ')');
+
+    /* At least one concrete example path exists for each intended rating. */
+    ok(!!(s.example.outstanding && s.example.good && s.example.requires && s.example.inadequate),
+      'reachability: a concrete example path exists for every rating');
+
+    /* The spread is genuinely wide (guards against a future edit collapsing the
+       game back toward a single band). */
+    ok((s.max - s.min) >= 25, 'reachability: the score spread across all paths is at least 25 wide (' + (s.max - s.min).toFixed(1) + ')');
+    ok(s.max >= 64, 'reachability: the best path clears the OUTSTANDING boundary');
+    ok(s.min < 50, 'reachability: the worst path falls below GOOD');
+
+    ok(page._errors.length === 0, 'reachability: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: SECOND COMPLETE GAME AFTER startNewGame ---------------- */
+  console.log('\nphase 5 second game after reset:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    /* Complete a full game, reset, complete a second full game - the second
+       year-end must build a valid rating with a clean four-quarter timeline and
+       no state bleeding through from the first. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const first = await page.evaluate(() => ({
+      band: computeTrustRating(GAME.stats).band.id,
+      timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length
+    }));
+    await page.evaluate(() => { closeYearEnd(); startNewGame(); });
+    const afterReset = await page.evaluate(() => ({
+      decisions: GAME.decisions.length,
+      yearEnd: isYearEndOpen()
+    }));
+    await driveToYearEnd(page, ['cfo', 'md']);
+    const second = await page.evaluate(() => {
+      const bands = { outstanding: 1, good: 1, requires: 1, inadequate: 1 };
+      const rt = computeTrustRating(GAME.stats);
+      return {
+        open: isYearEndOpen(),
+        validBand: !!bands[rt.band.id],
+        timeline: document.querySelectorAll('#yearEndRoot .ye-tl-row').length,
+        decisions: GAME.decisions.length
+      };
+    });
+    eq(first.timeline, 4, 'second game: first run completes with a four-quarter timeline');
+    eq(afterReset.decisions, 0, 'second game: startNewGame clears the first game between runs');
+    ok(!afterReset.yearEnd, 'second game: the first overlay is closed before the second run');
+    ok(second.open, 'second game: the second run opens the year-end overlay');
+    ok(second.validBand, 'second game: the second run computes a valid rating band');
+    eq(second.timeline, 4, 'second game: the second run has its own clean four-quarter timeline');
+    eq(second.decisions, 4, 'second game: exactly four decisions are recorded in the second run');
+    ok(page._errors.length === 0, 'second game: no console/page errors');
+    await page.close();
+  }
+
   /* ---------------- PHASE 5: NEW GAME RESET ---------------- */
   console.log('\nphase 5 new game:');
   {
@@ -1847,6 +1961,31 @@ async function driveToYearEnd(page, roles) {
     await page.evaluate(() => closeFacilitatorNotes());
 
     ok(page._errors.length === 0, 'year end guard: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 5: PRINT / EXPORT ---------------- */
+  console.log('\nphase 5 print/export:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    /* The print stylesheet must expand every section and drop the chrome. */
+    const uiCss = fs.readFileSync(path.resolve(__dirname, '..', 'src', 'css', 'ui.css'), 'utf8');
+    const cssMin = uiCss.replace(/\s+/g, '');
+    ok(/@media\s*print/.test(uiCss), 'print: a print stylesheet exists');
+    ok(/\.ye-section\[hidden\]\{display:flex!important/.test(cssMin), 'print: the print stylesheet expands every section');
+    ok(cssMin.indexOf('.ye-foot{display:none') >= 0, 'print: the print stylesheet hides the footer controls');
+    /* Clicking Print reveals all five sections and calls window.print once. */
+    await driveToYearEnd(page, ['cfo', 'md']);
+    await page.evaluate(() => { window.__printed = 0; window.print = () => { window.__printed++; }; });
+    await page.click('#yearEndRoot .ye-print');
+    const r = await page.evaluate(() => ({
+      printed: window.__printed,
+      revealed: document.querySelectorAll('#yearEndRoot .ye-section:not([hidden])').length
+    }));
+    eq(r.revealed, 5, 'print: Print/Export reveals all five sections before printing');
+    eq(r.printed, 1, 'print: Print/Export invokes window.print exactly once');
+    ok(page._errors.length === 0, 'print: no console/page errors');
     await page.close();
   }
 

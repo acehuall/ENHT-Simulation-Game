@@ -29,7 +29,8 @@ function metricBarHeightPct(def, value){
      colors {bg, grid, yLabel, xLabel}
      yLabelDx             x offset of the y label from the left axis
      series []            {color, width, points:[{xFrac, value}],
-                           marker:'none'|'end'|'all', markerSize}
+                           marker:'none'|'end'|'all', markerSize,
+                           dash:[on,off]  optional dashed stroke pattern}
      xLabels []           {xFrac, text, align}
      xLabelDy             y offset of x labels below the bottom axis
      decorate(g, rect, scale)  optional under-series pass (e.g. month markers)
@@ -62,6 +63,7 @@ function renderLineChart(g, o){
   for(s=0;s<o.series.length;s++){
     var ser=o.series[s];
     g.strokeStyle=ser.color; g.lineWidth=ser.width||1;
+    if(ser.dash) g.setLineDash(ser.dash);
     g.beginPath();
     first=true;
     for(i=0;i<ser.points.length;i++){
@@ -70,6 +72,7 @@ function renderLineChart(g, o){
       if(first){ g.moveTo(x,y); first=false; } else g.lineTo(x,y);
     }
     g.stroke();
+    g.setLineDash([]);
     if(ser.marker && ser.marker!=='none' && ser.points.length){
       var ms=ser.markerSize||3, half=Math.floor(ms/2);
       g.fillStyle=ser.color;

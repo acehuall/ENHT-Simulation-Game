@@ -1046,28 +1046,27 @@ async function driveToYearEnd(page, roles) {
     eq(perf.visiblePanels, 1, 'performance: exactly one panel is visible');
     eq(perf.heads, 4, 'performance: four tab headers render');
 
-    /* Q1 has a single datapoint, so the operations tab shows an explicit
-       insufficient-data note rather than a degenerate single-point chart. */
-    const q1Trend = await page.evaluate(() => ({
-      hasCanvas: !!document.getElementById('repWaitTrend'),
-      hasNote: !!document.querySelector('[data-perf-panel="1"] .rep-perf-nodata')
-    }));
-    ok(!q1Trend.hasCanvas, 'performance: Q1 renders no degenerate single-point chart');
-    ok(q1Trend.hasNote, 'performance: Q1 shows an insufficient-data note for the waiting trend');
+    /* Every quarter now emits the canvas with a four-point OPEN/M1/M2/M3
+       series; the Q1 pack (no committed decisions) has no year-to-date series
+       and never the old insufficient-data note. hasWaitTrendData is gone. */
+    const q1Trend = await page.evaluate(() => {
+      const series = _drawPerformanceCharts(REPORT.data);
+      return {
+        hasCanvas: !!document.getElementById('repWaitTrend'),
+        anyNote: document.querySelectorAll('.rep-perf-nodata').length,
+        seriesCount: series ? series.length : -1,
+        firstPoints: series && series[0] ? series[0].points.length : -1,
+        hasWaitTrendType: typeof hasWaitTrendData
+      };
+    });
+    ok(q1Trend.hasCanvas, 'performance: Q1 emits the waiting-trend canvas');
+    eq(q1Trend.anyNote, 0, 'performance: no rep-perf-nodata element exists anywhere on the Q1 pack');
+    eq(q1Trend.seriesCount, 1, 'performance: Q1 renders a single this-quarter series');
+    eq(q1Trend.firstPoints, 4, 'performance: the Q1 this-quarter series has four points');
+    eq(q1Trend.hasWaitTrendType, 'undefined', 'performance: hasWaitTrendData is gone');
 
-    /* Once a second quarter exists the trend chart renders and draws pixels. */
+    /* The Q1 trend draws pixels (the solid series plus the tolerance line). */
     const chart = await page.evaluate(() => {
-      resetGameState();
-      quarterComplete = true;
-      const q = getCurrentQuarterId();
-      confirmBoardDecision(q, getCurrentQuarter().options[0].id);
-      advanceAfterDecision(q);
-      quarterComplete = true;
-      openReport();
-      for (let i = 0; i < REPORT_PAGES.length; i++) { if (REPORT_PAGES[i].id === 'performance') { REPORT.page = i; break; } }
-      _syncReportPages();
-      setPerfTab(1);
-      REPORT_PAGES.forEach(p => { if (p.afterRender) p.afterRender(REPORT.data); });
       const cv = document.getElementById('repWaitTrend');
       if (!cv) return null;
       const g = cv.getContext('2d');
@@ -1076,8 +1075,36 @@ async function driveToYearEnd(page, roles) {
       for (let i = 0; i < d.length; i += 400) if (d[i] < 200) seen++;
       return { w: cv.width, seen };
     });
-    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width once data exists');
-    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels once data exists');
+    ok(!!chart && chart.w > 0, 'performance: waiting-trend chart has non-zero width');
+    ok(!!chart && chart.seen > 0, 'performance: waiting-trend chart draws pixels');
+
+    /* The Q3 pack (Q1+Q2 committed) adds the dashed year-to-date series with
+       three points: OPEN, Q1 close, Q2 close. */
+    const q3Trend = await page.evaluate(() => {
+      resetGameState();
+      for (let i = 0; i < 2; i++) {
+        quarterComplete = true;
+        const q = getCurrentQuarterId();
+        confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+        advanceAfterDecision(q);
+      }
+      quarterComplete = true;
+      openReport();
+      for (let i = 0; i < REPORT_PAGES.length; i++) { if (REPORT_PAGES[i].id === 'performance') { REPORT.page = i; break; } }
+      _syncReportPages();
+      setPerfTab(1);
+      const series = _drawPerformanceCharts(REPORT.data);
+      return {
+        historyLen: REPORT.data.snapshot.history.length,
+        seriesCount: series ? series.length : -1,
+        firstPoints: series && series[0] ? series[0].points.length : -1,
+        secondPoints: series && series[1] ? series[1].points.length : -1
+      };
+    });
+    eq(q3Trend.historyLen, 2, 'performance: the Q3 pack has two committed quarters in history');
+    eq(q3Trend.seriesCount, 2, 'performance: the Q3 pack renders two series');
+    eq(q3Trend.firstPoints, 4, 'performance: the Q3 this-quarter series still has four points');
+    eq(q3Trend.secondPoints, 3, 'performance: the Q3 year-to-date series has three points (OPEN, Q1, Q2)');
 
     /* switching tabs preserves the report body's scroll position. Shrink the
        viewport so the panels overflow, scroll to a value both the source and
@@ -1133,6 +1160,245 @@ async function driveToYearEnd(page, roles) {
 
     ok(page._errors.length === 0, 'performance page: no console/page errors');
     await page.close();
+  }
+
+  /* ---------------- PHASE 3: SNAPSHOT ACCESSOR ---------------- */
+  console.log('\nphase 3 snapshot accessor:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      /* Install a known non-flat outcome so start != end on every key. */
+      TIMELINE = compileTimeline({
+        quarterId: 'Q1', optionId: 'status_quo', optionTitle: 'Status Quo',
+        decisionSummary: '', startStats: initialMetricStats(),
+        endStats: Object.assign(initialMetricStats(), { budget: -1.8, waiting: 74, safety: 52 })
+      }, getQuarterEventConfig('Q1'));
+      const outcome = getTimelineOutcome();
+      const keys = METRIC_DEFS.map(d => d.key);
+
+      const at0 = getMetricSnapshotAt(0);
+      const atEnd = getMetricSnapshotAt(QLEN);
+
+      const curBefore = JSON.stringify(METRIC_CUR);
+      const histBefore = METRIC_HISTORY.length;
+      getMetricSnapshotAt(15); getMetricSnapshotAt(30); getMetricSnapshotAt(QLEN);
+      const curAfter = JSON.stringify(METRIC_CUR);
+      const histAfter = METRIC_HISTORY.length;
+
+      const a = getMetricSnapshotAt(15), b = getMetricSnapshotAt(15);
+      return {
+        eq0: keys.every(k => at0[k] === outcome.startStats[k]),
+        eqEnd: keys.every(k => atEnd[k] === outcome.endStats[k]),
+        pureCur: curBefore === curAfter,
+        pureHist: histBefore === histAfter,
+        deepEqual: JSON.stringify(a) === JSON.stringify(b),
+        distinct: a !== b
+      };
+    });
+    ok(s.eq0, 'snapshot accessor: getMetricSnapshotAt(0) equals startStats on all six keys');
+    ok(s.eqEnd, 'snapshot accessor: getMetricSnapshotAt(QLEN) equals endStats on all six keys');
+    ok(s.pureCur, 'snapshot accessor: calling it leaves METRIC_CUR unchanged');
+    ok(s.pureHist, 'snapshot accessor: calling it leaves METRIC_HISTORY.length unchanged');
+    ok(s.deepEqual, 'snapshot accessor: two calls with the same t are deep-equal');
+    ok(s.distinct, 'snapshot accessor: two calls with the same t return distinct objects');
+    ok(page._errors.length === 0, 'snapshot accessor: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: SNAPSHOT SHAPE ---------------- */
+  console.log('\nphase 3 snapshot shape:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+    const s = await page.evaluate(() => {
+      const snap = REPORT.data.snapshot;
+      const keys = METRIC_DEFS.map(d => d.key);
+      const sig1 = snap.signature;
+      closeReport();
+      openReport();
+      const sig2 = REPORT.data.snapshot.signature;
+      return {
+        monthEndsLen: snap.monthEnds.length,
+        lastEqEnd: keys.every(k => snap.monthEnds[2].stats[k] === snap.endStats[k]),
+        sigType: typeof sig1,
+        sigNonEmpty: !!sig1 && sig1.length > 0,
+        sigStable: sig1 === sig2
+      };
+    });
+    eq(s.monthEndsLen, 3, 'snapshot shape: monthEnds has three entries');
+    ok(s.lastEqEnd, 'snapshot shape: monthEnds[2].stats equals endStats on all six keys');
+    eq(s.sigType, 'string', 'snapshot shape: signature is a string');
+    ok(s.sigNonEmpty, 'snapshot shape: signature is non-empty');
+    ok(s.sigStable, 'snapshot shape: signature is identical across two opens of the same pack');
+    ok(page._errors.length === 0, 'snapshot shape: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: MONEY ON PAGE 1 ---------------- */
+  console.log('\nphase 3 money on page 1:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+    const s = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('.rep-page .rep-metric-row'));
+      const budgetRow = rows.find(r => r.querySelector('b') && /Budget/i.test(r.querySelector('b').textContent));
+      const valText = budgetRow ? budgetRow.querySelector('span').textContent : '';
+      /* metricDeltaText is the sprite-safe path (canvas signage cannot render a
+         £ glyph); it must still emit GBP. fmtMoney is left untouched. */
+      return {
+        valText,
+        hasPound: valText.indexOf('£') >= 0,
+        hasGBP: valText.indexOf('GBP') >= 0,
+        deltaHasGBP: metricDeltaText(getMetricDef('budget'), -1.8).indexOf('GBP') >= 0
+      };
+    });
+    ok(s.hasPound, 'money: the page-1 budget card contains £ (got "' + s.valText + '")');
+    ok(!s.hasGBP, 'money: the page-1 budget card contains no GBP');
+    ok(s.deltaHasGBP, 'money: metricDeltaText still emits GBP for the sprite-safe canvas path');
+    ok(page._errors.length === 0, 'money: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: FINANCE TOTALS + NIL VARIANCE ---------------- */
+  console.log('\nphase 3 finance totals + nil variance:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const noOverride = deriveIncomeExpenditure(Object.assign(initialMetricStats(), { budget: -2 }), null);
+      const withOverride = deriveIncomeExpenditure(
+        Object.assign(initialMetricStats(), { budget: -2 }),
+        { quarterId: 'Q2', optionId: 'discharge_partnership' });
+      return {
+        reconNo: Math.abs(noOverride.totalIncome - noOverride.totalExpenditure - (-2)),
+        reconOv: Math.abs(withOverride.totalIncome - withOverride.totalExpenditure - (-2)),
+        linesArray: Array.isArray(noOverride.lines),
+        surplusNumber: typeof noOverride.surplus === 'number',
+        surplusMatches: Math.abs(noOverride.surplus - (noOverride.totalIncome - noOverride.totalExpenditure)) < 1e-9,
+        nilVariance: _finVariance({ kind: 'income', variance: 0.0 }),
+        nilVarianceSpend: _finVariance({ kind: 'expenditure', variance: 0.02 }),
+        realVariance: _finVariance({ kind: 'income', variance: 0.6 })
+      };
+    });
+    ok(s.reconNo < 0.001, 'finance: totalIncome - totalExpenditure reconciles to budget (no override)');
+    ok(s.reconOv < 0.001, 'finance: totalIncome - totalExpenditure reconciles to budget (quarter with an override)');
+    ok(s.linesArray, 'finance: lines is still an array');
+    ok(s.surplusNumber, 'finance: surplus is still a number');
+    ok(s.surplusMatches, 'finance: surplus still equals totalIncome - totalExpenditure');
+    eq(s.nilVariance, '&mdash;', 'finance: a nil income variance renders an em dash, not £0.0m');
+    eq(s.nilVarianceSpend, '&mdash;', 'finance: a nil expenditure variance renders an em dash');
+    ok(/&pound;0\.6m/.test(s.realVariance) && s.realVariance.indexOf('+') === 0,
+      'finance: a real favourable variance still renders a signed £ figure');
+    ok(page._errors.length === 0, 'finance totals: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: TAB SEMANTICS ---------------- */
+  console.log('\nphase 3 tab semantics:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(800);
+    await page.keyboard.press('s');
+    await page.waitForTimeout(300);
+    await page.click('#repNext'); // results -> performance
+    const s = await page.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('.rep-perf-tab'));
+      const panels = Array.from(document.querySelectorAll('.rep-perf-panel'));
+      return {
+        selected: tabs.filter(t => t.getAttribute('aria-selected') === 'true').length,
+        unselected: tabs.filter(t => t.getAttribute('aria-selected') === 'false').length,
+        tabindexZero: tabs.filter(t => t.getAttribute('tabindex') === '0').length,
+        controlsResolve: tabs.every(t => {
+          const el = document.getElementById(t.getAttribute('aria-controls'));
+          return !!el && el.getAttribute('role') === 'tabpanel';
+        }),
+        labelledbyResolve: panels.every(p => {
+          const tab = document.getElementById(p.getAttribute('aria-labelledby'));
+          return !!tab && tab.getAttribute('aria-controls') === p.id;
+        }),
+        label3: PERF_TABS[3].label,
+        id3: PERF_TABS[3].id
+      };
+    });
+    eq(s.selected, 1, 'tabs: exactly one tab is aria-selected=true');
+    eq(s.unselected, 3, 'tabs: the other three tabs are aria-selected=false');
+    eq(s.tabindexZero, 1, 'tabs: exactly one tab has tabindex 0');
+    ok(s.controlsResolve, 'tabs: every aria-controls resolves to a role=tabpanel element');
+    ok(s.labelledbyResolve, 'tabs: every panel aria-labelledby resolves back to its own tab');
+    eq(s.label3, 'Patient & Safety', 'tabs: the fourth tab label is Patient & Safety');
+    eq(s.id3, 'quality', 'tabs: the fourth tab id remains quality');
+
+    /* Right-arrow moves both selection and DOM focus. */
+    await page.keyboard.press('ArrowRight');
+    const arrow = await page.evaluate(() => {
+      const active = document.activeElement;
+      return {
+        activeIsTab: !!active && active.classList.contains('rep-perf-tab'),
+        activeSelected: !!active && active.getAttribute('aria-selected') === 'true',
+        activeIndex: active ? parseInt(active.getAttribute('data-perf-tab'), 10) : -1,
+        activeTab: getActivePerfTab()
+      };
+    });
+    ok(arrow.activeIsTab, 'tabs: ArrowRight moves focus onto a tab button');
+    ok(arrow.activeSelected, 'tabs: the focused tab is the selected one after ArrowRight');
+    eq(arrow.activeIndex, arrow.activeTab, 'tabs: focus and selection agree after ArrowRight');
+
+    /* setPerfTab must NOT move focus (it also runs on render/reset). */
+    const focusUnchanged = await page.evaluate(() => {
+      const before = document.activeElement;
+      setPerfTab(2);
+      return document.activeElement === before;
+    });
+    ok(focusUnchanged, 'tabs: setPerfTab(2) does not move document.activeElement');
+    ok(page._errors.length === 0, 'tab semantics: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- PHASE 3: BOARD PACK IMMUTABILITY ---------------- */
+  console.log('\nphase 3 board pack immutability:');
+  {
+    async function immutabilityRun(setup) {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(150);
+      const s = await page.evaluate((setupName) => {
+        const snapshot = () => JSON.stringify({
+          stats: GAME.stats, decisions: GAME.decisions, alerts: GAME.alerts, roles: GAME.roles
+        });
+        resetGameState();
+        setBoardRoles(['cfo', 'md']);
+        if (setupName === 'midyear') {
+          for (let i = 0; i < 2; i++) {
+            quarterComplete = true;
+            const q = getCurrentQuarterId();
+            confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+            advanceAfterDecision(q);
+          }
+        }
+        quarterComplete = true;
+        const before = snapshot();
+        openReport();
+        for (let p = 0; p < REPORT_PAGES.length; p++) {
+          REPORT.page = p;
+          _syncReportPages();
+          if (REPORT_PAGES[p].afterRender) REPORT_PAGES[p].afterRender(REPORT.data);
+        }
+        for (let t = 0; t < getPerfTabCount(); t++) setPerfTab(t);
+        REPORT.page = 0;
+        _syncReportPages();
+        closeReport();
+        return { equal: before === snapshot() };
+      }, setup);
+      ok(s.equal, 'immutability: GAME is byte-identical after opening/paging/tabbing/closing the ' + setup + ' pack');
+      ok(page._errors.length === 0, 'immutability (' + setup + '): no console/page errors');
+      await page.close();
+    }
+    await immutabilityRun('q1');
+    await immutabilityRun('midyear');
   }
 
   /* ---------------- PHASE 4: OBJECTIVE AUTHORING + ENGINE ---------------- */

@@ -250,25 +250,166 @@ function _drawBoardBalanceRadar(data){
   });
 }
 
-function _fillReportPage1(data){
-  var rows=[], i, m, dl;
-  for(i=0;i<data.metrics.length;i++){
-    m=data.metrics[i];
-    dl=_reportMetricDelta(m);
-    rows.push('<div class="rep-metric-row"><b>'+escapeHTML(m.full)+'</b>'+
-      '<span>'+_metricDisplay(m,m.cur)+'</span>'+
-      '<i class="'+dl.tone+'">'+escapeHTML(dl.disp)+'</i></div>');
+/* The standing position, in one line, read before anything else on the page.
+   Carries no alert text on purpose: the strip is where the Trust IS, the list
+   under it is what HAPPENED. Mixing the two is what made the old page 1
+   unreadable in twenty seconds. */
+function _reportPostureStrip(snapshot){
+  var posture=getBoardPosture(snapshot.endStats);
+  var def=posture.worstKey ? getMetricDef(posture.worstKey) : null;
+  var counts=[];
+  if(posture.criticalCount) counts.push(posture.criticalCount+' critical');
+  if(posture.warnCount) counts.push(posture.warnCount+' under warning');
+  if(!counts.length) counts.push('no metric in a failing band');
+  return '<div class="rep-posture band-'+posture.tone+'">'+
+    '<b>'+escapeHTML(posture.label)+'</b>'+
+    '<span>'+escapeHTML(counts.join(', '))+
+      (def ? ' &middot; main pressure: '+escapeHTML(def.full||def.label) : '')+
+    '</span></div>';
+}
+
+/* Three is the cap because page 1 is a headline, not a log. */
+var REPORT_ALERT_LIMIT=3;
+
+/* The Patient & Safety tab lists these same alerts in full. The duplication is
+   deliberate: page 1 has to work as a standalone twenty-second read, and
+   "a constitutional standard was breached" cannot be something the board only
+   discovers by paging into a tab. */
+function _reportAlertList(snapshot){
+  var alerts=(typeof getAlertsForDecisionQuarter==='function')
+    ? getAlertsForDecisionQuarter(snapshot.quarterId) : [];
+  if(!alerts.length){
+    /* Every Q1 pack lands here by construction - alerts are only recorded when
+       a decision is committed, so the opening quarter has none. */
+    return '<p class="rep-alert-empty">No threshold breaches recorded during this period.</p>';
   }
+  /* Same critical -> warn -> praise ordering the live alert queue uses; there
+     is no second ordering in the codebase and there should not be. */
+  var rank=(typeof _severityRank==='function') ? _severityRank : function(){ return 9; };
+  var ranked=alerts.slice().sort(function(a,b){ return rank(a.severity)-rank(b.severity); });
+  var items=[], i, a;
+  for(i=0;i<ranked.length && i<REPORT_ALERT_LIMIT;i++){
+    a=ranked[i];
+    items.push('<div class="rep-alert-item sev-'+a.severity+'"><b>'+escapeHTML(a.title)+'</b>'+
+      '<span>'+escapeHTML(a.line)+'</span></div>');
+  }
+  if(ranked.length>REPORT_ALERT_LIMIT){
+    items.push('<p class="rep-alert-more">+'+(ranked.length-REPORT_ALERT_LIMIT)+' further events</p>');
+  }
+  return '<div class="rep-alert-list">'+items.join('')+'</div>';
+}
+
+/* Movement chip for a card. The ARROW states what the number did; the WORD
+   states what that did to the Trust. A rise in waiting times is an up arrow
+   and "Deteriorated". Collapsing the two into one symbol makes either the
+   waiting card or every other card lie, so they stay decoupled. */
+function _reportMetricMovement(metric){
+  var d=metric.cur-metric.last, up, good, mag;
+  if(Math.abs(d)<0.05) return {tone:'flat', text:'&#9644; No change'};
+  up=d>0;
+  good=(up===metric.goodUp);
+  mag=metric.money ? ('&pound;'+Math.abs(d).toFixed(1)+'m')
+                   : (Math.abs(d)<1 ? Math.abs(d).toFixed(1) : String(Math.round(Math.abs(d))));
+  return {
+    tone: good ? 'good' : 'bad',
+    text: (up?'&#9650;':'&#9660;')+' '+mag+' &middot; '+(good?'Improved':'Deteriorated')
+  };
+}
+
+/* Name, value, band label, movement - and deliberately NO per-card band
+   description. Six prose lines is what blew the height budget in v1 and it
+   defeats the twenty-second scan; the band line still lives on the
+   Performance Analysis tabs where there is room to read it.
+
+   The <b> name plus <span> value pairing is the card contract page-1 tests
+   read the money format from. Keep it. */
+function _reportMetricCard(metric){
+  var band=getMetricBand(metric.key, metric.cur);
+  var move=_reportMetricMovement(metric);
+  return '<div class="rep-metric-row band-'+(band?band.tone:'neutral')+'">'+
+    '<b>'+escapeHTML(metric.full)+'</b>'+
+    '<span>'+_metricDisplay(metric, metric.cur)+'</span>'+
+    '<em>'+(band?escapeHTML(band.label):'')+'</em>'+
+    '<i class="'+move.tone+'">'+move.text+'</i>'+
+  '</div>';
+}
+
+/* Health points. Below this a movement is noise, and naming noise as the
+   quarter's main pressure or strongest improvement discredits the whole
+   panel - so the line is suppressed rather than printed. */
+var MOVEMENT_EPSILON=1.0;
+
+/* Ranked by health-score delta, NEVER by raw delta: budget moves in £m across
+   a 10-point range while waiting is a 100-point index that inverts, so raw
+   movements are not comparable between metrics at all. */
+function _reportMovementRanking(metrics){
+  var moved=[], i, m;
+  for(i=0;i<metrics.length;i++){
+    m=metrics[i];
+    moved.push({
+      metric:m,
+      delta:getMetricHealthScore(m.key, m.cur)-getMetricHealthScore(m.key, m.last)
+    });
+  }
+  moved.sort(function(a,b){ return a.delta-b.delta; });
+  return {worst:moved[0], best:moved[moved.length-1]};
+}
+
+/* 'CONCERN' -> 'Concern'. Band labels are authored in caps for chips; in a
+   sentence they read as shouting. */
+function _bandWord(band){
+  if(!band) return 'its band';
+  var s=String(band.label);
+  return s.charAt(0).toUpperCase()+s.substring(1).toLowerCase();
+}
+
+function _movementMagnitude(metric){
+  var d=Math.abs(metric.cur-metric.last);
+  if(metric.money) return '&pound;'+d.toFixed(1)+'m';
+  return (d<1 ? d.toFixed(1) : String(Math.round(d)))+' point'+(Math.round(d)===1?'':'s');
+}
+
+/* A band change is the more informative sentence, so it wins when there is
+   one; otherwise the movement is reported inside the band it stayed in. */
+function _movementSentence(entry){
+  var m=entry.metric;
+  var from=getMetricBand(m.key, m.last), to=getMetricBand(m.key, m.cur);
+  if(from && to && from!==to){
+    return escapeHTML(m.full)+' moved from '+escapeHTML(_bandWord(from))+
+           ' to '+escapeHTML(_bandWord(to))+'.';
+  }
+  return escapeHTML(m.full)+' '+(entry.delta>0?'improved':'weakened')+' by '+
+         _movementMagnitude(m)+' and remained '+escapeHTML(_bandWord(to))+'.';
+}
+
+function _reportMovementSummary(metrics){
+  var ranked=_reportMovementRanking(metrics), lines=[];
+  if(ranked.worst && ranked.worst.delta<=-MOVEMENT_EPSILON){
+    lines.push('<div><b>Main pressure</b><span>'+_movementSentence(ranked.worst)+'</span></div>');
+  }
+  if(ranked.best && ranked.best.delta>=MOVEMENT_EPSILON){
+    lines.push('<div><b>Strongest improvement</b><span>'+_movementSentence(ranked.best)+'</span></div>');
+  }
+  if(!lines.length){
+    /* Q1 always lands here: the opening quarter plays back flat by design. */
+    lines.push('<div><span>No metric moved materially over the quarter.</span></div>');
+  }
+  return '<div class="rep-movement">'+lines.join('')+'</div>';
+}
+
+function _fillReportPage1(data){
+  var cards=[], i;
+  for(i=0;i<data.metrics.length;i++) cards.push(_reportMetricCard(data.metrics[i]));
   return [
     '<div class="rep-paper">',
       _reportPageHead('results'),
-      '<div class="rep-grid two">',
+      _reportPostureStrip(data.snapshot),
+      _reportAlertList(data.snapshot),
+      '<div class="rep-position-grid">',
         _reportRadarBlock(data.snapshot),
-        '<div><h4>Board position</h4>',
-          '<p>The simulation has replayed the current board position using the resolved outcome. These values are the baseline for the decision you make now.</p>',
-          '<div class="rep-metric-list">'+rows.join('')+'</div>',
-        '</div>',
+        '<div class="rep-metric-grid">'+cards.join('')+'</div>',
       '</div>',
+      _reportMovementSummary(data.metrics),
     '</div>'
   ].join('');
 }

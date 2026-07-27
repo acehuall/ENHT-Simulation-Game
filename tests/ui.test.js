@@ -2544,6 +2544,73 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- BOARD PACK PHASE 4: HEALTH SCORE ----------------
+     Named "board pack phase 4" because the blocks above already use "phase 4"
+     for the role-objective work, which is a different phase 4 in an earlier
+     numbering. There is no Node-side module system here, so these "pure"
+     assertions run inside the page against the real global. */
+  console.log('\nboard pack phase 4 health score:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const before = JSON.stringify(METRIC_DEFS);
+
+      /* Sweep every metric across its whole authored range in small steps.
+         "Monotone in the desirable direction" means non-decreasing as the
+         metric improves - so for goodUp:false metrics the sweep is read
+         backwards. Band boundaries produce small steps; those are intended,
+         so this asserts no REVERSAL, never continuity. */
+      const sweep = METRIC_DEFS.map(def => {
+        const steps = 400, span = def.max - def.min;
+        let outOfRange = 0, nonNumber = 0, reversals = 0, prev = null;
+        for (let i = 0; i <= steps; i++) {
+          /* Walk in the desirable direction: up the value axis for goodUp,
+             down it for waiting. */
+          const v = def.goodUp ? def.min + span * i / steps : def.max - span * i / steps;
+          const score = getMetricHealthScore(def.key, v);
+          if (typeof score !== 'number' || isNaN(score)) nonNumber++;
+          if (score < -1e-9 || score > 100 + 1e-9) outOfRange++;
+          if (prev !== null && score < prev - 1e-9) reversals++;
+          prev = score;
+        }
+        return { key: def.key, outOfRange, nonNumber, reversals,
+                 worst: getMetricHealthScore(def.key, def.goodUp ? def.min : def.max),
+                 best: getMetricHealthScore(def.key, def.goodUp ? def.max : def.min) };
+      });
+
+      const worked = [
+        ['waiting', 40, '83.3'], ['waiting', 48, '80.0'],
+        ['waiting', 48.1, '79.8'], ['waiting', 90, '13.3'],
+        ['budget', 0.0, '60.0'], ['budget', -2.9, '21.3'],
+        ['budget', -3.0, '20.0'], ['budget', -4.0, '16.0']
+      ].map(([key, value, expected]) => ({
+        label: key + ' ' + value,
+        got: getMetricHealthScore(key, value).toFixed(1),
+        expected
+      }));
+
+      return {
+        sweep, worked,
+        unknownMetric: getMetricHealthScore('not_a_metric', 5),
+        mutated: JSON.stringify(METRIC_DEFS) !== before
+      };
+    });
+
+    ok(s.sweep.every(m => m.nonNumber === 0), 'health score: always returns a number');
+    ok(s.sweep.every(m => m.outOfRange === 0), 'health score: stays inside [0,100] across every metric range');
+    ok(s.sweep.every(m => m.reversals === 0),
+       'health score: monotone non-decreasing in the desirable direction (' +
+       s.sweep.filter(m => m.reversals).map(m => m.key).join(',') + ')');
+    ok(s.sweep.every(m => Math.abs(m.worst) < 1e-9), 'health score: the worst authored value scores 0');
+    ok(s.sweep.every(m => Math.abs(m.best - 100) < 1e-9), 'health score: the best authored value scores 100');
+    s.worked.forEach(w => eq(w.got, w.expected, 'health score: ' + w.label));
+    eq(s.unknownMetric, 50, 'health score: an unknown metric returns the neutral midpoint');
+    ok(!s.mutated, 'health score: calling it does not mutate METRIC_DEFS');
+    ok(page._errors.length === 0, 'health score: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

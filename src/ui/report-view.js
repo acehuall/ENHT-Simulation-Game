@@ -120,7 +120,8 @@ function _reportMetricDelta(metric){
                 the DOM. For pages that draw into a <canvas>, which
                 cannot be done from an HTML string. */
 var REPORT_PAGES=[
-  {id:'results',     title:'Prior Quarter Results', build:_fillReportPage1},
+  {id:'results',     title:'Prior Quarter Results', build:_fillReportPage1,
+   afterRender:function(data){ _drawBoardBalanceRadar(data); }},
   {id:'performance', title:'Performance Analysis',  build:_fillReportPerformance,
    afterRender:function(data){ _drawPerformanceCharts(data); }},
   {id:'issue',       title:'Issue At Hand',         build:_fillReportPage2,
@@ -169,15 +170,91 @@ function _reportShell(data){
   ].join('');
 }
 
+/* ---------- board balance radar (page 1) ----------
+   Six metrics in five different units cannot share one axis, so every spoke
+   plots getMetricHealthScore() rather than the raw value. That normalisation
+   is why the "further outward is better" subtitle is mandatory and not
+   decoration: without it the chart reads as raw values, which inverts the
+   meaning of the waiting axis - exactly the misreading normalisation exists to
+   prevent.
+
+   The two rings are Month 2 and Month 3, not open and close, because the
+   board's question on page 1 is which way the quarter was travelling as it
+   ended. */
+var RADAR_PRIOR_COLOR='#98a3bd';
+var RADAR_LATEST_COLOR='#23c4b4';
+
+/* monthEnds is captured at pack-open time and is always present in practice;
+   the start/end fallback keeps page 1 rendering if a caller ever hands over a
+   snapshot built before phase 1. */
+function _radarStatsPair(snapshot){
+  var me=snapshot.monthEnds;
+  return {
+    prior:  (me && me[1] && me[1].stats) ? me[1].stats : snapshot.startStats,
+    latest: (me && me[2] && me[2].stats) ? me[2].stats : snapshot.endStats
+  };
+}
+
+function _radarScores(stats){
+  var out=[], i, key;
+  for(i=0;i<METRIC_DEFS.length;i++){
+    key=METRIC_DEFS[i].key;
+    out.push(getMetricHealthScore(key, stats[key]));
+  }
+  return out;
+}
+
+/* The six cards beside the radar already carry every figure as text, so to a
+   screen-reader user the chart is duplication - that is the correct
+   relationship for a decorative-but-informative graphic, and the reason this
+   is a one-line summary rather than a data table. The same string is used as
+   the <canvas> fallback content for the no-canvas case. */
+function _radarAccessibleText(snapshot){
+  var latest=_radarStatsPair(snapshot).latest, parts=[], i, def;
+  for(i=0;i<METRIC_DEFS.length;i++){
+    def=METRIC_DEFS[i];
+    parts.push(def.full+' '+Math.round(getMetricHealthScore(def.key, latest[def.key])));
+  }
+  return 'Board balance at month 3. Normalised health out of 100, higher is better: '+
+         parts.join(', ')+'.';
+}
+
+function _reportRadarBlock(snapshot){
+  var text=_radarAccessibleText(snapshot);
+  return [
+    '<div class="rep-radar-wrap">',
+      '<h4>Board balance &mdash; normalised health</h4>',
+      '<p class="rep-radar-sub">Further outward is better on every axis.</p>',
+      '<canvas id="repBalanceRadar" class="rep-radar" width="360" height="300"',
+        ' role="img" aria-label="'+escapeHTML(text)+'">'+escapeHTML(text)+'</canvas>',
+      '<p class="rep-radar-legend">Month 2 (dashed) &middot; Month 3 (solid)</p>',
+    '</div>'
+  ].join('');
+}
+
+function _drawBoardBalanceRadar(data){
+  var cv=$('repBalanceRadar');
+  /* Guarded so a failure to load report-infographics.js costs the chart, not
+     the whole board pack. */
+  if(!cv || typeof renderRadarChart!=='function') return null;
+  var pair=_radarStatsPair(data.snapshot), axes=[], i;
+  for(i=0;i<METRIC_DEFS.length;i++) axes.push({label:METRIC_DEFS[i].label});
+  return renderRadarChart(cv, {
+    axes:axes,
+    series:[
+      {values:_radarScores(pair.prior),  color:RADAR_PRIOR_COLOR,  width:1,
+       dash:[4,3], marker:'hollow', markerSize:3},
+      {values:_radarScores(pair.latest), color:RADAR_LATEST_COLOR, width:2,
+       fill:'rgba(35,196,180,.18)', marker:'filled', markerSize:3}
+    ]
+  });
+}
+
 function _fillReportPage1(data){
-  var rows=[], bars=[], labels=[], i, m, dl;
+  var rows=[], i, m, dl;
   for(i=0;i<data.metrics.length;i++){
     m=data.metrics[i];
     dl=_reportMetricDelta(m);
-    bars.push('<div class="rep-bar-group">'+
-      '<i class="rep-bar last" style="height:'+metricBarHeightPct(m,m.last)+'%"></i>'+
-      '<i class="rep-bar cur" style="height:'+metricBarHeightPct(m,m.cur)+'%"></i></div>');
-    labels.push('<span>'+escapeHTML(m.full)+'</span>');
     rows.push('<div class="rep-metric-row"><b>'+escapeHTML(m.full)+'</b>'+
       '<span>'+_metricDisplay(m,m.cur)+'</span>'+
       '<i class="'+dl.tone+'">'+escapeHTML(dl.disp)+'</i></div>');
@@ -186,7 +263,7 @@ function _fillReportPage1(data){
     '<div class="rep-paper">',
       _reportPageHead('results'),
       '<div class="rep-grid two">',
-        '<div><h4>Metric movement</h4><div class="rep-bars">'+bars.join('')+'</div><div class="rep-x">'+labels.join('')+'</div></div>',
+        _reportRadarBlock(data.snapshot),
         '<div><h4>Board position</h4>',
           '<p>The simulation has replayed the current board position using the resolved outcome. These values are the baseline for the decision you make now.</p>',
           '<div class="rep-metric-list">'+rows.join('')+'</div>',

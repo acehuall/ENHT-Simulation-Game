@@ -123,7 +123,7 @@ var REPORT_PAGES=[
   {id:'results',     title:'Prior Quarter Results', build:_fillReportPage1,
    afterRender:function(data){ _drawBoardBalanceRadar(data); }},
   {id:'performance', title:'Performance Analysis',  build:_fillReportPerformance,
-   afterRender:function(data){ _drawPerformanceCharts(data); }},
+   afterRender:function(data){ _drawPerformanceCharts(data); _drawOccupancyGauge(data); }},
   {id:'issue',       title:'Issue At Hand',         build:_fillReportPage2,
    afterRender:function(data){ _drawReportIssueChart(data.issue); }},
   {id:'options',     title:'Options For Decision',  build:_fillReportPage3}
@@ -183,6 +183,15 @@ function _reportShell(data){
    ended. */
 var RADAR_PRIOR_COLOR='#98a3bd';
 var RADAR_LATEST_COLOR='#23c4b4';
+
+/* Band tones as PAPER inks, matching .rep-perf-cell.band-{tone} in ui.css exactly.
+   Canvas cannot read a CSS class, so the two lists have to be kept in step by
+   hand; a mismatch shows up as a gauge arc that disagrees with the tone of the
+   figure printed under it. */
+var REPORT_TONE_INK = {
+  critical:'#e05252', warn:'#b07d10', neutral:'#1a2236',
+  good:'#1e8f4e',     great:'#0f8f82'
+};
 
 /* monthEnds is captured at pack-open time and is always present in practice;
    the start/end fallback keeps page 1 rendering if a caller ever hands over a
@@ -664,20 +673,102 @@ function _hasYearToDate(data){
   return !!(data && data.snapshot && data.snapshot.history && data.snapshot.history.length>=1);
 }
 
+/* ---------- bed occupancy gauge (Operations tab) ----------
+   Occupancy is the single most legible operational figure an NHS board reads,
+   and its meaning is entirely relative: 94.2% says nothing without knowing where
+   the trust normally sits. A number in a row list cannot carry that; the position
+   of the value against a marked norm IS the reading.
+
+   No figure changes here. The value drawn is exactly the one deriveOperational()
+   already returns and exactly the one in the row list beside it. */
+
+/* Plain-language distance from the operating norm. Reads as a sentence a
+   non-finance board member can act on, not as a delta. */
+function _occupancyStatusText(gauge){
+  var d=Math.abs(gauge.delta);
+  if(d<0.05) return 'Exactly at the '+gauge.normLabel.toLowerCase()+' of '+
+                    _perfFixed(gauge.norm,0)+'%.';
+  return _perfFixed(d,1)+' percentage points '+
+         (gauge.delta>0 ? 'above' : 'below')+' the '+
+         gauge.normLabel.toLowerCase()+' of '+_perfFixed(gauge.norm,0)+'%.';
+}
+
+/* Authored, not derived from the band list: "At norm" is the reading a board
+   wants for the neutral band, and no rule generates that from a boundary. */
+var OCCUPANCY_BAND_WORD={
+  good:'Below norm', neutral:'At norm', warn:'Elevated', critical:'Severe'
+};
+
+/* One string, used both as the aria-label and as the <canvas> fallback content -
+   the same relationship _radarAccessibleText() has with the radar. */
+function _occupancyAccessibleText(gauge){
+  return 'Bed occupancy '+_perfFixed(gauge.value,1)+'%, '+
+         (OCCUPANCY_BAND_WORD[gauge.tone]||'').toLowerCase()+'. '+
+         _occupancyStatusText(gauge);
+}
+
+function _occupancyGaugeBlock(gauge){
+  var text=_occupancyAccessibleText(gauge);
+  return [
+    '<div class="rep-gauge-wrap">',
+      '<h4>BED OCCUPANCY</h4>',
+      '<canvas id="repOccGauge" class="rep-gauge" width="300" height="180"',
+        ' role="img" aria-label="'+escapeHTML(text)+'">'+escapeHTML(text)+'</canvas>',
+      '<p class="rep-gauge-status band-'+gauge.tone+'">'+escapeHTML(_occupancyStatusText(gauge))+'</p>',
+      '<p class="rep-gauge-legend">Marker shows the '+escapeHTML(gauge.normLabel.toLowerCase())+
+        ' &middot; scale '+_perfFixed(gauge.min,0)+'&ndash;'+_perfFixed(gauge.max,0)+'%</p>',
+    '</div>'
+  ].join('');
+}
+
+/* Build and draw are separate, matching _reportRadarBlock/_drawBoardBalanceRadar.
+   Guarded so a failure to load report-infographics.js costs the gauge, not the
+   pack. */
+function _drawOccupancyGauge(data){
+  var cv=$('repOccGauge');
+  if(!cv || typeof renderSemicircleGauge!=='function') return null;
+  var gauge=getOccupancyGauge(data.snapshot.endStats, _snapshotCtx(data.snapshot));
+  var bands=[], i;
+  for(i=0;i<gauge.bands.length;i++){
+    bands.push({to:gauge.bands[i].to,
+                color:REPORT_TONE_INK[gauge.bands[i].tone] || REPORT_TONE_INK.neutral});
+  }
+  return renderSemicircleGauge(cv, {
+    value:       gauge.value,
+    min:         gauge.min,
+    max:         gauge.max,
+    bands:       bands,
+    norm:        gauge.norm,
+    markerColor: REPORT_TONE_INK[gauge.tone] || REPORT_TONE_INK.neutral,
+    valueText:   _perfFixed(gauge.value,1)+'%',
+    bandText:    OCCUPANCY_BAND_WORD[gauge.tone] || '',
+    minText:     _perfFixed(gauge.min,0)+'%',
+    maxText:     _perfFixed(gauge.max,0)+'%'
+  });
+}
+
 function _perfOperationsPanel(data){
   var ctx=_snapshotCtx(data.snapshot);
   var section=getReportSection('operations', data.snapshot.endStats, ctx);
+  var gauge=getOccupancyGauge(data.snapshot.endStats, ctx);
   /* A direct text legend (not a colour key): the solid/dashed distinction and
      the words carry the meaning in greyscale. The year-to-date half is
      suppressed in Q1, where that series is absent. */
   var legend='THIS QUARTER (solid)'+
     (_hasYearToDate(data) ? ' &middot; YEAR TO DATE (dashed)' : '');
+  /* The gauge leads: occupancy is the standing position, the trend is the
+     direction of travel, and the board reads position first. */
   return [
     '<div class="rep-perf-panel" role="tabpanel" id="perfPanelOperations" aria-labelledby="perfTabOperations"'+
       (_perfTab===1?'':' hidden')+' data-perf-panel="1">',
-      '<h4>WAITING-PRESSURE TREND &mdash; LOWER IS BETTER</h4>',
-      '<div class="rep-perf-chartwrap"><canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas></div>',
-      '<p class="rep-perf-legend">'+legend+'</p>',
+      '<div class="rep-perf-opsrow">',
+        _occupancyGaugeBlock(gauge),
+        '<div class="rep-perf-trendcol">',
+          '<h4>WAITING-PRESSURE TREND &mdash; LOWER IS BETTER</h4>',
+          '<div class="rep-perf-chartwrap"><canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas></div>',
+          '<p class="rep-perf-legend">'+legend+'</p>',
+        '</div>',
+      '</div>',
       _perfRowList(section),
       '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
     '</div>'

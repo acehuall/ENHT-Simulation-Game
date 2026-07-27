@@ -58,6 +58,33 @@ var REPORTING_COEFFS = {
   }
 };
 
+/* Reference points a board reads a figure AGAINST, kept separate from
+   REPORTING_COEFFS because these are not tuning constants: retuning a
+   coefficient changes a derived value, whereas changing a benchmark changes what
+   that value MEANS. They are also the figures most likely to be replaced with real
+   published values after NHS review, so they need to be findable in one place.
+
+   Bands are authored ASCENDING by value with DESCENDING tone, and `to` is the
+   INCLUSIVE upper bound of its own band - the same contract METRIC_DEFS uses and
+   getMetricBand() implements. The final band is open-ended.
+
+   The label is authored, and is deliberately "Trust operating norm" and nothing
+   else. These are fictional coefficients tuned for a training game; wording that
+   implies an external authority ("national standard", "NHS target") would be
+   repeated in a real meeting as though it were one. */
+var REPORTING_BENCHMARKS = {
+  operational: {
+    occupancyNorm:      92,
+    occupancyNormLabel: 'Trust operating norm',
+    occupancyBands: [
+      { to: 89,       tone: 'good'     },
+      { to: 92,       tone: 'neutral'  },
+      { to: 95,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ]
+  }
+};
+
 /* 'quarterId:optionId' wins over 'quarterId', which wins over the derived
    value. Longest (most specific) key wins. Keys use real game IDs: Q2 is the
    Capacity Strain quarter, where delayed transfers of care are the headline
@@ -202,9 +229,39 @@ function _commentary(key, value){
   return band ? band.line : '';
 }
 
+/* Tone for a benchmark value against an ascending band list. `to` is INCLUSIVE,
+   matching getMetricBand() at metric-semantics.js:25 - a second boundary
+   convention in the same codebase would be a bug waiting to happen. Returns the
+   last band's tone for anything past the final boundary (unreachable when the
+   list ends open, kept as a guard for lists that do not), and never throws on an
+   empty or absent list.
+
+   The inclusive bound is load-bearing, not stylistic: at the opening board
+   position occupancy derives to exactly occBase = 92 = occupancyNorm, so an
+   exclusive bound would drop the norm itself into the `warn` band and print an
+   amber "ELEVATED" chip directly above a sentence saying the trust is exactly on
+   its norm.
+   -> 'good'|'neutral'|'warn'|'critical' */
+function getBenchmarkTone(bands, value){
+  var i;
+  if(!bands || !bands.length) return 'neutral';
+  for(i = 0; i < bands.length; i++){
+    if(value <= bands[i].to) return bands[i].tone;
+  }
+  return bands[bands.length - 1].tone;
+}
+
 /* A single non-finance display row. tone comes from the source metric's band,
-   honouring the phase-1 band-{tone} contract. */
-function _row(id, label, value, unit, sourceKey, sourceValue){
+   honouring the phase-1 band-{tone} contract.
+
+   `toneOverride` is for figures that have a benchmark of their own. Without it
+   the tone comes from the source metric's band, which is right for a figure
+   whose only meaning is "this is what waiting pressure does to the wards".
+   Occupancy is the one operational figure with an authored norm, so it is judged
+   against that norm instead - and must be, because the gauge above the list
+   already is. That leaves the Operations tab with two tone sources on purpose;
+   do not "tidy" it back to one. */
+function _row(id, label, value, unit, sourceKey, sourceValue, toneOverride){
   var band = getMetricBand(sourceKey, sourceValue);
   return {
     id:         id,
@@ -212,7 +269,7 @@ function _row(id, label, value, unit, sourceKey, sourceValue){
     value:      value,
     unit:       unit,
     source:     sourceKey,
-    tone:       band ? band.tone : 'neutral',
+    tone:       toneOverride || (band ? band.tone : 'neutral'),
     commentary: _commentary(sourceKey, sourceValue)
   };
 }
@@ -296,6 +353,35 @@ function deriveOperational(stats, ctx){
   };
 }
 
+/* Bed occupancy prepared for gauge display. The value, range and clamp all come
+   from the existing operational derivation, so the gauge can never disagree with
+   the figure in the row list beside it or drift from the model's own clamp.
+
+   deriveOperational() is deliberately called a second time rather than having
+   the view thread its already-derived value in: it is pure and cheap, and this
+   way an authored REPORTING_OVERRIDES entry on `occupancy` reaches the gauge
+   automatically. Threading the value in from the view is the route by which the
+   two presentations drift apart.
+
+   Returns numbers only - no rounding, no wording, no colour. Presentation happens
+   in report-view.js, matching the rule that rounding never enters the derivation.
+   -> {value, min, max, norm, normLabel, tone, delta, bands} */
+function getOccupancyGauge(stats, ctx){
+  var c = REPORTING_COEFFS.operational;
+  var b = REPORTING_BENCHMARKS.operational;
+  var value = deriveOperational(stats, ctx).occupancy;
+  return {
+    value:     value,
+    min:       c.occClamp[0],
+    max:       c.occClamp[1],
+    norm:      b.occupancyNorm,
+    normLabel: b.occupancyNormLabel,
+    tone:      getBenchmarkTone(b.occupancyBands, value),
+    delta:     value - b.occupancyNorm,
+    bands:     b.occupancyBands
+  };
+}
+
 /* Workforce. Vacancy/turnover/sickness/agency worsen as `morale` falls; the
    staff survey improves with `morale` and `rep`.
    -> {vacancyRate, turnover, sickness, bankAgencySpend, surveyScore} */
@@ -374,7 +460,12 @@ function getReportSection(id, stats, ctx){
     case 'operations': {
       s = deriveOperational(stats, ctx);
       rows = [
-        _row('occupancy',         'Bed occupancy',                s.occupancy,         '%',       'waiting', stats.waiting),
+        /* Occupancy alone takes its tone from its own benchmark, so the row and
+           the gauge above it can never show different tones for the same figure.
+           Commentary stays keyed to `waiting`: the narrative line is about
+           waiting pressure and reads correctly for all five rows. */
+        _row('occupancy',         'Bed occupancy',                s.occupancy,         '%',       'waiting', stats.waiting,
+             getBenchmarkTone(REPORTING_BENCHMARKS.operational.occupancyBands, s.occupancy)),
         _row('losPct',            'Length of stay index',         s.losPct,            '',        'waiting', stats.waiting),
         _row('dtocBeds',          'Delayed transfers of care',    s.dtocBeds,          ' beds',   'waiting', stats.waiting),
         _row('ambulanceHandover', 'Ambulance handovers >30min',   s.ambulanceHandover, '',        'waiting', stats.waiting),

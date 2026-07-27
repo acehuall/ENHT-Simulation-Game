@@ -233,7 +233,7 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   background:rgba(5,7,12,.86); padding:18px; color:var(--ink);
 }
 .rep-modal{
-  width:min(1060px,96vw); max-height:94vh; display:flex; flex-direction:column; gap:10px;
+  width:min(1120px,97vw); max-height:96vh; display:flex; flex-direction:column; gap:10px;
   border:2px solid var(--line); background:#101522; box-shadow:0 10px 0 #05070c;
 }
 .rep-top,.rep-foot{display:flex; align-items:center; gap:12px; padding:10px 12px;}
@@ -245,8 +245,8 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-pages{min-height:0; overflow:auto; padding:12px;}
 .rep-page[hidden]{display:none;}
 .rep-paper{
-  background:#dfe5f0; color:#1a2236; border:2px solid #141b30; min-height:520px;
-  padding:18px; display:flex; flex-direction:column; gap:14px;
+  background:#dfe5f0; color:#1a2236; border:2px solid #141b30; min-height:500px;
+  padding:16px; display:flex; flex-direction:column; gap:14px;
 }
 .rep-page-head{display:flex; align-items:center; gap:12px; border-bottom:4px solid #23c4b4; padding-bottom:8px;}
 .rep-page-head span{background:#141b30; color:#e8ecf5; padding:6px 10px; font-weight:bold;}
@@ -254,18 +254,62 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-grid.two{display:grid; grid-template-columns:1fr 1fr; gap:14px; min-height:0;}
 .rep-paper h4{font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px;}
 .rep-paper p{font-size:12px; line-height:1.5; margin-bottom:8px;}
-.rep-bars{height:250px; display:flex; align-items:flex-end; gap:6px; border-left:3px solid #141b30; border-bottom:3px solid #141b30; padding:8px;}
-.rep-bar-group{flex:1; height:100%; display:flex; align-items:flex-end; justify-content:center; gap:5px;}
-.rep-bar{display:block; width:18px; min-height:4px; border:2px solid #141b30;}
-.rep-bar.last{background:#98a3bd;}
-.rep-bar.cur{background:#23c4b4;}
-.rep-x{display:flex; padding-left:12px; margin-top:6px;}
-.rep-x span{flex:1; text-align:center; font-size:9px; line-height:1.2; color:#4a5470; padding:0 2px; overflow-wrap:break-word; hyphens:auto;}
+/* ---------- page 1: board position (phase 4) ----------
+   Posture strip, alerts, radar and the 3x2 metric grid, in the paper palette.
+   Band tones reuse the shared band-{tone} contract rather than introducing a
+   second RAG palette - see the extended .rep-perf-cell selectors below. */
+.rep-posture{
+  display:flex; align-items:baseline; gap:12px; flex-wrap:wrap;
+  background:#eef2f8; border-left:6px solid currentColor; padding:8px 10px;
+}
+.rep-posture b{font-size:14px; letter-spacing:2px;}
+.rep-posture span{font-size:11px; letter-spacing:.5px; color:#42557a;}
+.rep-posture.band-critical{color:var(--critical);}
+.rep-posture.band-warn{color:#b07d10;}
+.rep-posture.band-neutral{color:#1a2236;}
+.rep-posture.band-good{color:#1e8f4e;}
+.rep-posture.band-great{color:#0f8f82;}
+
+.rep-alert-list{display:flex; flex-direction:column; gap:5px;}
+.rep-alert-item span{display:block;}
+.rep-alert-more,.rep-alert-empty{font-size:11px; color:#4a5470; margin:0; line-height:1.4;}
+
+.rep-position-grid{
+  display:grid; grid-template-columns:minmax(260px,380px) 1fr; gap:16px; align-items:start;
+}
+/* The canvas carries a super-sampled bitmap, so it MUST be sized in CSS or it
+   lays out at its backing-store width and blows the page apart. */
+.rep-radar-wrap{display:flex; flex-direction:column; min-width:0;}
+.rep-radar{display:block; width:100%; max-width:360px; height:auto; margin:0 auto;
+  border:2px solid #141b30; background:#fbfcfe;}
+.rep-radar-sub{font-size:11px; color:#42557a; margin:-4px 0 8px; line-height:1.4;}
+.rep-radar-legend{font-size:10px; letter-spacing:1px; text-transform:uppercase;
+  color:#4a5470; margin:8px 0 0; text-align:center;}
+
 .rep-metric-list{display:flex; flex-direction:column; gap:6px; margin-top:12px;}
 .rep-metric-row{display:flex; align-items:center; gap:8px; background:#eef2f8; border:1px solid #c3cbdc; padding:6px 8px; font-size:12px;}
 .rep-metric-row b{letter-spacing:1px;}
 .rep-metric-row span{margin-left:auto; font-weight:bold;}
 .rep-metric-row i{font-style:normal; width:62px; text-align:right; font-weight:bold;}
+
+/* Same card element as the list row (the <b> name + <span> value contract is
+   shared), restacked as a block so three fit across. */
+.rep-metric-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; align-content:start;}
+.rep-metric-grid .rep-metric-row{
+  flex-direction:column; align-items:flex-start; gap:3px; padding:8px 9px;
+  border-left:4px solid currentColor;
+}
+.rep-metric-grid .rep-metric-row b{font-size:11px; letter-spacing:.5px; color:#1a2236;}
+.rep-metric-grid .rep-metric-row span{margin-left:0; font-size:18px; line-height:1.1; color:#1a2236;}
+.rep-metric-grid .rep-metric-row em{font-style:normal; font-size:10px; letter-spacing:1.5px; font-weight:bold;}
+.rep-metric-grid .rep-metric-row i{width:auto; text-align:left; font-size:10px; letter-spacing:.5px;}
+
+.rep-movement{border-top:2px solid #141b30; padding-top:10px; display:flex; flex-direction:column; gap:5px;}
+.rep-movement div{display:flex; gap:12px; align-items:baseline; font-size:12px; line-height:1.45;}
+.rep-movement b{
+  flex:none; width:170px; font-size:10px; letter-spacing:1.5px;
+  text-transform:uppercase; color:#42557a;
+}
 .rep-alert{border:2px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:8px 10px; font-size:11px; font-weight:bold; letter-spacing:1px;}
 .rep-issue-title{font-size:24px !important; margin:2px 0 4px;}
 #repIssueChart{width:100%; height:auto; border:2px solid #141b30; image-rendering:auto;}
@@ -371,25 +415,37 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
    meaning in greyscale, so colour stays supplementary. */
 .rep-perf-legend{font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#4a5470; margin:0 0 10px;}
 .rep-perf-alerts{display:flex; flex-direction:column; gap:5px; margin:8px 0;}
-.rep-perf-alert{border-left:4px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:6px 9px; font-size:11px; line-height:1.4;}
-.rep-perf-alert b{display:block; letter-spacing:.5px;}
-.rep-perf-alert.sev-critical{border-left-color:var(--critical); background:#f4dcdc; color:#8c2222;}
-.rep-perf-alert.sev-praise{border-left-color:#23c4b4; background:#e9f6f4; color:#0f6b60;}
+.rep-perf-alert,.rep-alert-item{border-left:4px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:6px 9px; font-size:11px; line-height:1.4;}
+.rep-perf-alert b,.rep-alert-item b{display:block; letter-spacing:.5px;}
+.rep-perf-alert.sev-critical,.rep-alert-item.sev-critical{border-left-color:var(--critical); background:#f4dcdc; color:#8c2222;}
+.rep-perf-alert.sev-praise,.rep-alert-item.sev-praise{border-left-color:#23c4b4; background:#e9f6f4; color:#0f6b60;}
 
 /* Tone-coloured cells (variance columns, figure values) share the same
    band-{tone} contract; values render on the light paper so tones map to
    paper-legible inks. */
-.rep-perf-cell.band-critical{color:var(--critical);}
-.rep-perf-cell.band-warn{color:#b07d10;}
-.rep-perf-cell.band-neutral{color:#1a2236;}
-.rep-perf-cell.band-good{color:#1e8f4e;}
-.rep-perf-cell.band-great{color:#0f8f82;}
+.rep-perf-cell.band-critical,.rep-metric-grid .rep-metric-row.band-critical em{color:var(--critical);}
+.rep-perf-cell.band-warn,.rep-metric-grid .rep-metric-row.band-warn em{color:#b07d10;}
+.rep-perf-cell.band-neutral,.rep-metric-grid .rep-metric-row.band-neutral em{color:#1a2236;}
+.rep-perf-cell.band-good,.rep-metric-grid .rep-metric-row.band-good em{color:#1e8f4e;}
+.rep-perf-cell.band-great,.rep-metric-grid .rep-metric-row.band-great em{color:#0f8f82;}
 
 @media (max-width:760px){
   .rep-grid.two,.rep-options{grid-template-columns:1fr;}
   .rep-paper{min-height:0;}
   .rep-foot{flex-wrap:wrap;}
   .rep-foot .decision{margin-left:0; width:100%;}
+  /* Radar stacks above the cards rather than shrinking into a column too
+     narrow for its axis labels. */
+  .rep-position-grid{grid-template-columns:1fr;}
+  .rep-metric-grid{grid-template-columns:repeat(2,1fr);}
+  .rep-movement b{width:auto; min-width:110px;}
+}
+
+/* One column, still fully labelled - the card text is the accessible copy of
+   the radar, so nothing may be dropped to make it fit. */
+@media (max-width:480px){
+  .rep-metric-grid{grid-template-columns:1fr;}
+  .rep-movement div{flex-direction:column; gap:2px;}
 }
 
 /* ---------- year end report overlay (phase 5) ----------

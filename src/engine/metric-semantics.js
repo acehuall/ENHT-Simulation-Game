@@ -38,6 +38,43 @@ function getMetricBandIndex(key, value){
   return def.bands.length-1;
 }
 
+/* Normalised 0..100 desirability of one metric value, so six metrics in five
+   different units can share one axis (the board-balance radar). 100 is the top
+   of the best band, 0 the bottom of the worst, and HIGHER IS ALWAYS BETTER -
+   including for waiting, which inverts here.
+
+   Each band owns an equal slice of the range (five bands -> 20 points each) and
+   the value's position inside its own band fills that slice. Bands are not
+   equal in value-width, so the mapping is deliberately non-linear in the raw
+   number: a band is the board's unit of "how bad is this", and the radar is
+   read as tone, not as arithmetic.
+
+   That design produces a small step at every band boundary - waiting 48 scores
+   80.0 and waiting 48.1 scores 79.8. This is intentional tone quantisation: it
+   is what makes crossing a band legible on the chart. Do not "fix" it by
+   interpolating across boundaries.
+
+   PRESENTATION ONLY. This never reaches GAME.stats, metric-pressure.js, agent
+   spawning or computeTrustRating() - the simulation knows nothing about it. */
+function getMetricHealthScore(key, value){
+  var def=getMetricDef(key), i, n, lo, hi, pos, rank;
+  /* A metric with no bands authored has no desirability scale to normalise
+     against, so it sits at the midpoint rather than skewing the shape. */
+  if(!def || !def.bands || !def.bands.length) return 50;
+  n=def.bands.length;
+  i=getMetricBandIndex(key,value);
+  lo=(i===0) ? def.min : def.bands[i-1].to;
+  hi=def.bands[i].to;
+  pos=(hi===lo) ? 1 : (value-lo)/(hi-lo);
+  pos=Math.max(0, Math.min(1, pos));
+  /* Bands are authored ascending by `to`. For a goodUp:false metric the best
+     band is therefore first, so both the band rank and the within-band fill
+     run backwards. */
+  rank=def.goodUp ? i : (n-1-i);
+  if(!def.goodUp) pos=1-pos;
+  return (rank+pos)*(100/n);
+}
+
 /* Threshold crossings between two values.
      dir:'below' fires when prev >  at && next <= at
      dir:'above' fires when prev <  at && next >= at

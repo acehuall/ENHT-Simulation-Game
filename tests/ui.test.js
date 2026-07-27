@@ -2544,6 +2544,282 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- BOARD PACK PHASE 4: HEALTH SCORE ----------------
+     Named "board pack phase 4" because the blocks above already use "phase 4"
+     for the role-objective work, which is a different phase 4 in an earlier
+     numbering. There is no Node-side module system here, so these "pure"
+     assertions run inside the page against the real global. */
+  console.log('\nboard pack phase 4 health score:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const before = JSON.stringify(METRIC_DEFS);
+
+      /* Sweep every metric across its whole authored range in small steps.
+         "Monotone in the desirable direction" means non-decreasing as the
+         metric improves - so for goodUp:false metrics the sweep is read
+         backwards. Band boundaries produce small steps; those are intended,
+         so this asserts no REVERSAL, never continuity. */
+      const sweep = METRIC_DEFS.map(def => {
+        const steps = 400, span = def.max - def.min;
+        let outOfRange = 0, nonNumber = 0, reversals = 0, prev = null;
+        for (let i = 0; i <= steps; i++) {
+          /* Walk in the desirable direction: up the value axis for goodUp,
+             down it for waiting. */
+          const v = def.goodUp ? def.min + span * i / steps : def.max - span * i / steps;
+          const score = getMetricHealthScore(def.key, v);
+          if (typeof score !== 'number' || isNaN(score)) nonNumber++;
+          if (score < -1e-9 || score > 100 + 1e-9) outOfRange++;
+          if (prev !== null && score < prev - 1e-9) reversals++;
+          prev = score;
+        }
+        return { key: def.key, outOfRange, nonNumber, reversals,
+                 worst: getMetricHealthScore(def.key, def.goodUp ? def.min : def.max),
+                 best: getMetricHealthScore(def.key, def.goodUp ? def.max : def.min) };
+      });
+
+      const worked = [
+        ['waiting', 40, '83.3'], ['waiting', 48, '80.0'],
+        ['waiting', 48.1, '79.8'], ['waiting', 90, '13.3'],
+        ['budget', 0.0, '60.0'], ['budget', -2.9, '21.3'],
+        ['budget', -3.0, '20.0'], ['budget', -4.0, '16.0']
+      ].map(([key, value, expected]) => ({
+        label: key + ' ' + value,
+        got: getMetricHealthScore(key, value).toFixed(1),
+        expected
+      }));
+
+      return {
+        sweep, worked,
+        unknownMetric: getMetricHealthScore('not_a_metric', 5),
+        mutated: JSON.stringify(METRIC_DEFS) !== before
+      };
+    });
+
+    ok(s.sweep.every(m => m.nonNumber === 0), 'health score: always returns a number');
+    ok(s.sweep.every(m => m.outOfRange === 0), 'health score: stays inside [0,100] across every metric range');
+    ok(s.sweep.every(m => m.reversals === 0),
+       'health score: monotone non-decreasing in the desirable direction (' +
+       s.sweep.filter(m => m.reversals).map(m => m.key).join(',') + ')');
+    ok(s.sweep.every(m => Math.abs(m.worst) < 1e-9), 'health score: the worst authored value scores 0');
+    ok(s.sweep.every(m => Math.abs(m.best - 100) < 1e-9), 'health score: the best authored value scores 100');
+    s.worked.forEach(w => eq(w.got, w.expected, 'health score: ' + w.label));
+    eq(s.unknownMetric, 50, 'health score: an unknown metric returns the neutral midpoint');
+    ok(!s.mutated, 'health score: calling it does not mutate METRIC_DEFS');
+    ok(page._errors.length === 0, 'health score: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 4: RADAR ---------------- */
+  console.log('\nboard pack phase 4 radar:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* Canvas screenshot diffing is out of scope, so "did it draw" is asserted
+       as: the bitmap is opaque AND carries pixels that are not the flat chart
+       background - i.e. there is actual ink, not just a cleared canvas. */
+    const s = await page.evaluate(() => {
+      const ink = () => {
+        const cv = document.getElementById('repBalanceRadar');
+        const g = cv.getContext('2d');
+        const d = g.getImageData(0, 0, cv.width, cv.height).data;
+        let alpha = 0, nonBg = 0;
+        for (let i = 0; i < d.length; i += 16) {
+          alpha += d[i + 3];
+          /* chart background is #fbfcfe */
+          if (d[i] !== 251 || d[i + 1] !== 252 || d[i + 2] !== 254) nonBg++;
+        }
+        return { alpha, nonBg, w: cv.width, h: cv.height };
+      };
+
+      resetGameState();
+      /* A committed midyear pack, so month 2 and month 3 are real closes
+         rather than the flat opening quarter. */
+      for (let i = 0; i < 2; i++) {
+        quarterComplete = true;
+        const q = getCurrentQuarterId();
+        confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+        advanceAfterDecision(q);
+      }
+      quarterComplete = true;
+
+      openReport();
+      const cv = document.getElementById('repBalanceRadar');
+      const first = ink();
+      const label = cv.getAttribute('aria-label') || '';
+      const fallback = (cv.textContent || '').trim();
+      const role = cv.getAttribute('role');
+
+      /* The pack rebuilds its pages on every open. An unguarded ctx.scale()
+         would compound on the second draw, so both the backing store and the
+         rendered ink must come back identical. */
+      closeReport();
+      openReport();
+      const second = ink();
+
+      return {
+        role, label, fallback,
+        firstW: first.w, secondW: second.w,
+        firstH: first.h, secondH: second.h,
+        opaque: first.alpha > 0,
+        inked: first.nonBg > 0,
+        inkStable: first.nonBg === second.nonBg,
+        geometry: (function () {
+          /* renderRadarChart returns its resolved geometry so placement can be
+             asserted without pixel diffing: first axis straight up, six spokes,
+             two series. */
+          const g = _drawBoardBalanceRadar(REPORT.data);
+          return {
+            seriesCount: g.points.length,
+            axisCount: g.points[0].length,
+            firstAxisIsUp: Math.abs(g.points[1][0].x - 180) < 0.001 && g.points[1][0].y < 142
+          };
+        })()
+      };
+    });
+
+    eq(s.role, 'img', 'radar: the canvas is role="img"');
+    ok(s.label.length > 0, 'radar: the canvas has a non-empty aria-label');
+    ok(/higher is better/i.test(s.label), 'radar: the aria-label states the normalisation direction');
+    ok(s.fallback.length > 0, 'radar: the canvas carries text fallback content');
+    ok(s.opaque, 'radar: the canvas renders non-transparent pixels');
+    ok(s.inked, 'radar: the canvas renders pixels that are not the flat background');
+    eq(s.secondW, s.firstW, 'radar: canvas.width is identical after close and reopen');
+    eq(s.secondH, s.firstH, 'radar: canvas.height is identical after close and reopen');
+    ok(s.inkStable, 'radar: reopening redraws identically (the transform does not compound)');
+    eq(s.geometry.seriesCount, 2, 'radar: two series are plotted (month 2 and month 3)');
+    eq(s.geometry.axisCount, 6, 'radar: one axis per metric');
+    ok(s.geometry.firstAxisIsUp, 'radar: the first axis points straight up');
+    ok(page._errors.length === 0, 'radar: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 4: PAGE 1 ---------------- */
+  console.log('\nboard pack phase 4 page 1:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const snapshot = () => JSON.stringify({
+        stats: GAME.stats, decisions: GAME.decisions, alerts: GAME.alerts, roles: GAME.roles
+      });
+      const page1 = () => document.querySelector('[data-page="0"]');
+
+      resetGameState();
+      quarterComplete = true;
+
+      /* Q1 records no alerts by construction - they are only written when a
+         decision is committed - so this is the empty-state pack. */
+      const before = snapshot();
+      openReport();
+      const q1 = {
+        emptyLine: (page1().querySelector('.rep-alert-empty') || {}).textContent || '',
+        items: page1().querySelectorAll('.rep-alert-item').length,
+        cards: page1().querySelectorAll('.rep-metric-grid .rep-metric-row').length,
+        posture: (page1().querySelector('.rep-posture') || {}).textContent || '',
+        postureToned: /band-(critical|warn|neutral|good|great)/
+          .test((page1().querySelector('.rep-posture') || {}).className || ''),
+        movement: (page1().querySelector('.rep-movement') || {}).textContent || '',
+        /* the phase 3 card contract: <b> name plus <span> value */
+        contract: Array.from(page1().querySelectorAll('.rep-metric-row'))
+          .every(r => r.querySelector('b') && r.querySelector('span'))
+      };
+      /* Page every page and tab, then close without selecting an option. */
+      for (let p = 0; p < REPORT_PAGES.length; p++) { REPORT.page = p; _syncReportPages(); }
+      for (let t = 0; t < getPerfTabCount(); t++) setPerfTab(t);
+      REPORT.page = 0; _syncReportPages();
+      closeReport();
+      const unchanged = before === snapshot();
+
+      /* Overflow case: more alerts on the quarter than page 1 will show.
+         Injected directly (this page is not reused by any other block) because
+         no authored quarter records four in one go. */
+      const qid = getCurrentQuarterId();
+      for (let i = 0; i < 5; i++) {
+        GAME.alerts.push({
+          decisionQuarterId: qid, key: 'safety', at: 55, direction: 'below',
+          severity: i === 4 ? 'critical' : (i < 2 ? 'praise' : 'warn'),
+          title: 'INJECTED ' + i, line: 'synthetic', value: 50
+        });
+      }
+      const html = document.createElement('div');
+      html.innerHTML = _reportAlertList({ quarterId: qid });
+      const capped = {
+        items: html.querySelectorAll('.rep-alert-item').length,
+        more: (html.querySelector('.rep-alert-more') || {}).textContent || '',
+        /* critical -> warn -> praise, the same ordering the live queue uses */
+        firstIsCritical: html.querySelector('.rep-alert-item').className.indexOf('sev-critical') >= 0
+      };
+
+      return {
+        q1, unchanged, capped,
+        pageCount: REPORT_PAGES.length,
+        titles: REPORT_PAGES.map(p => p.title).join('|'),
+        resultsHasAfterRender: typeof REPORT_PAGES[0].afterRender === 'function'
+      };
+    });
+
+    eq(s.pageCount, 4, 'page 1: REPORT_PAGES still has exactly four pages');
+    eq(s.titles, 'Prior Quarter Results|Performance Analysis|Issue At Hand|Options For Decision',
+       'page 1: the page titles are unchanged');
+    ok(s.resultsHasAfterRender, 'page 1: the results descriptor has an afterRender hook');
+    eq(s.q1.cards, 6, 'page 1: six metric cards in the grid');
+    ok(s.q1.contract, 'page 1: every card keeps the <b> name + <span> value contract');
+    ok(/BOARD:/.test(s.q1.posture), 'page 1: the posture strip shows the board position label');
+    ok(/main pressure/i.test(s.q1.posture), 'page 1: the posture strip names the main pressure metric');
+    ok(s.q1.postureToned, 'page 1: the posture strip carries a band-{tone} class');
+    eq(s.q1.items, 0, 'page 1: a Q1 pack shows no alert items');
+    eq(s.q1.emptyLine, 'No threshold breaches recorded during this period.',
+       'page 1: a Q1 pack shows the empty-state line');
+    ok(/No metric moved materially/.test(s.q1.movement),
+       'page 1: a flat Q1 suppresses both movement lines rather than printing noise');
+    eq(s.capped.items, 3, 'page 1: at most three alert items are shown');
+    eq(s.capped.more, '+2 further events', 'page 1: the remaining alerts are counted, not dropped');
+    ok(s.capped.firstIsCritical, 'page 1: alerts are ordered critical first');
+    ok(s.unchanged, 'page 1: GAME is byte-identical after opening, paging, tabbing and closing');
+    ok(page._errors.length === 0, 'page 1: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 4: PAGE 1 LAYOUT AT 1280x720 ---------------- */
+  console.log('\nboard pack phase 4 page 1 layout:');
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.goto(PAGE_URL);
+    await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
+    await page.waitForTimeout(400);
+    const s = await page.evaluate(() => {
+      quarterComplete = true;
+      openReport();
+      const doc = document.documentElement;
+      const pages = document.querySelector('.rep-pages');
+      const modal = document.querySelector('.rep-modal').getBoundingClientRect();
+      const radar = document.getElementById('repBalanceRadar').getBoundingClientRect();
+      const foot = document.getElementById('repClose').getBoundingClientRect();
+      return {
+        docOverflowX: doc.scrollWidth - doc.clientWidth,
+        pagesOverflowX: pages.scrollWidth - pages.clientWidth,
+        radarW: radar.width, radarH: radar.height,
+        radarInsideModal: radar.left >= modal.left && radar.right <= modal.right,
+        radarInViewport: radar.top >= 0 && radar.bottom <= window.innerHeight,
+        footInViewport: foot.top >= 0 && foot.bottom <= window.innerHeight
+      };
+    });
+    ok(s.docOverflowX <= 0, 'layout 1280x720: the document does not scroll horizontally');
+    ok(s.pagesOverflowX <= 0, 'layout 1280x720: page 1 does not scroll horizontally');
+    ok(s.radarW > 0 && s.radarH > 0, 'layout 1280x720: the radar has a rendered size');
+    ok(s.radarInsideModal, 'layout 1280x720: the radar sits inside the modal horizontally');
+    ok(s.radarInViewport, 'layout 1280x720: the whole radar is on screen without scrolling');
+    ok(s.footInViewport, 'layout 1280x720: the pack footer is reachable');
+    ok(errors.length === 0, 'layout 1280x720: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

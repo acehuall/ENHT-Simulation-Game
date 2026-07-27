@@ -271,7 +271,8 @@ function deriveIncomeExpenditure(stats, ctx){
     if(lines[i].kind === 'income') income += lines[i].actual;
     else spend += lines[i].actual;
   }
-  return { lines: lines, surplus: income - spend };
+  return { lines: lines, surplus: income - spend,
+           totalIncome: income, totalExpenditure: spend };
 }
 
 /* Operations. All five figures rise with `waiting` (worsening), handover also

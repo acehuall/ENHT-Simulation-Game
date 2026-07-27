@@ -57,6 +57,19 @@ function _metricSnapshotAt(t){
   return s;
 }
 
+/* Read-only public accessor for the deterministic playback curve.
+   Safe for any t in [0, QLEN]. Uses the same easing and timeline events the
+   player just watched, so month-end values are the real curve rather than an
+   interpolation invented by the report. Returns a new object every call. */
+function getMetricSnapshotAt(simT){
+  var source=_metricSnapshotAt(simT), result={t:source.t}, i, key;
+  for(i=0;i<METRIC_DEFS.length;i++){
+    key=METRIC_DEFS[i].key;
+    result[key]=source[key];
+  }
+  return result;
+}
+
 function _applyMetricSnapshot(s){
   for(var i=0;i<METRIC_DEFS.length;i++){
     var k=METRIC_DEFS[i].key;

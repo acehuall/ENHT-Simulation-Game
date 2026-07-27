@@ -35,14 +35,37 @@ function _reportMetricValues(){
 function _reportSnapshot(){
   var timeline=getTimeline && getTimeline();
   var outcome=timeline && timeline.outcome ? timeline.outcome : DEFAULT_OUTCOME;
-  return {
+  var ml=simMonthLength();
+  var snap={
     outcome:    outcome,
     quarterId:  outcome.quarterId,
     optionId:   outcome.optionId,
     startStats: outcome.startStats,
     endStats:   outcome.endStats,
-    history:    (typeof getStatsHistory==='function' ? getStatsHistory() : [])
+    history:    (typeof getStatsHistory==='function' ? getStatsHistory() : []),
+
+    /* new: intra-quarter month closes, captured once at pack-open time */
+    monthEnds:[
+      {id:'M1', label:'M1', stats:getMetricSnapshotAt(ml)},
+      {id:'M2', label:'M2', stats:getMetricSnapshotAt(ml*2)},
+      {id:'M3', label:'M3', stats:getMetricSnapshotAt(QLEN)}
+    ],
+    signature:null
   };
+  snap.signature=reportSnapshotSignature(snap);
+  return snap;
+}
+
+/* A cheap stable fingerprint of the frozen snapshot (quarter, option and every
+   metric close). No consumer yet - it exists so per-tab lazy rendering can
+   detect a stale canvas later without a snapshot-shape migration. */
+function reportSnapshotSignature(s){
+  var parts=[s.quarterId, s.optionId], i, key;
+  for(i=0;i<METRIC_DEFS.length;i++){
+    key=METRIC_DEFS[i].key;
+    parts.push(key+':'+s.endStats[key]);
+  }
+  return parts.join('|');
 }
 
 /* The derivation context handed to every derive* / getReportSection call. */
@@ -69,8 +92,13 @@ function _reportImpactChips(effects){
   return chips;
 }
 
+/* .rep-paper is Courier New (base.css), which renders the &pound; and &#8722;
+   entities correctly, and the result is inserted raw (never through
+   escapeHTML), so the entities resolve to a real "-£1.8m". The canvas font in
+   scenario-data.js still needs the GBP fallback, so fmtMoney() is left alone -
+   this is the one report-layer caller. */
 function _metricDisplay(metric, value){
-  return metric.money ? fmtMoney(value).replace('&pound;','GBP').replace('&#8722;','-') : String(Math.round(value));
+  return metric.money ? fmtMoney(value) : String(Math.round(value));
 }
 
 function _reportMetricDelta(metric){
@@ -232,7 +260,7 @@ var PERF_TABS=[
   {id:'finance',    label:'Finance',          metric:'budget'},
   {id:'operations', label:'Operations',       metric:'waiting'},
   {id:'workforce',  label:'Workforce',        metric:'morale'},
-  {id:'quality',    label:'Quality & Safety', metric:'safety'}
+  {id:'quality',    label:'Patient & Safety', metric:'safety'}
 ];
 var _perfTab=0;
 
@@ -246,16 +274,26 @@ function setPerfTab(index){
   _syncPerfTabs();
 }
 
-/* Wraps at the ends so left/right keys cycle the tabs. */
+/* Wraps at the ends so left/right keys cycle the tabs. Unlike setPerfTab (which
+   also runs programmatically on render and reset), this moves DOM focus onto
+   the newly selected tab - the point of a roving tabindex. Called after
+   setPerfTab returns, since setPerfTab early-returns without re-rendering when
+   the index is unchanged. */
 function movePerfTab(delta){
   setPerfTab((_perfTab+delta+PERF_TABS.length)%PERF_TABS.length);
+  var root=$('repRoot'), heads=root && root.querySelectorAll('.rep-perf-tab');
+  if(heads && heads[_perfTab]) heads[_perfTab].focus();
 }
 
 function _syncPerfTabs(){
   var root=$('repRoot');
   if(!root) return;
   var heads=root.querySelectorAll('.rep-perf-tab'), panels=root.querySelectorAll('.rep-perf-panel'), i;
-  for(i=0;i<heads.length;i++) heads[i].classList.toggle('active', i===_perfTab);
+  for(i=0;i<heads.length;i++){
+    heads[i].classList.toggle('active', i===_perfTab);
+    heads[i].setAttribute('aria-selected', i===_perfTab ? 'true' : 'false');
+    heads[i].tabIndex = i===_perfTab ? 0 : -1;
+  }
   for(i=0;i<panels.length;i++) panels[i].hidden=i!==_perfTab;
 }
 
@@ -288,15 +326,30 @@ function _perfValueText(row){
   return String(Math.round(v))+u;
 }
 
+/* DOM id suffix for a tab/panel pair, e.g. 'finance' -> 'Finance', giving
+   perfTabFinance / perfPanelFinance. */
+function _perfTabDomId(tabId){
+  return tabId.charAt(0).toUpperCase()+tabId.substring(1);
+}
+
+/* The tablist is a single tab stop: only the active tab is aria-selected and
+   tabbable (tabindex 0); the rest are -1 and reached with the arrow keys. */
 function _perfTabHeaders(data){
-  var out=[], i, tab, band, value, tone;
+  var out=[], i, tab, band, value, tone, sel, dom;
   for(i=0;i<PERF_TABS.length;i++){
     tab=PERF_TABS[i];
     value=data.snapshot.endStats[tab.metric];
     band=getMetricBand(tab.metric, value);
     tone=band?band.tone:'neutral';
-    out.push('<button type="button" class="rep-perf-tab band-'+tone+(i===_perfTab?' active':'')+
-      '" data-perf-tab="'+i+'">'+escapeHTML(tab.label)+'</button>');
+    sel=i===_perfTab;
+    dom=_perfTabDomId(tab.id);
+    out.push('<button type="button" role="tab"'+
+      ' id="perfTab'+dom+'"'+
+      ' aria-selected="'+(sel?'true':'false')+'"'+
+      ' aria-controls="perfPanel'+dom+'"'+
+      ' tabindex="'+(sel?'0':'-1')+'"'+
+      ' class="rep-perf-tab band-'+tone+(sel?' active':'')+'"'+
+      ' data-perf-tab="'+i+'">'+escapeHTML(tab.label)+'</button>');
   }
   return '<div class="rep-perf-tabs" role="tablist">'+out.join('')+'</div>';
 }
@@ -316,7 +369,10 @@ function _finMoney(v, kind){
    reads "-", so the sign always agrees with the tone colour for both kinds. */
 function _finVariance(r){
   var fav=r.kind==='income' ? r.variance : -r.variance;
-  var sign=fav>0.05?'+':(fav<-0.05?'&#8722;':'');
+  /* A variance that rounds to nothing reads as a real £0.0m figure, so show an
+     em dash for "on plan" instead. */
+  if(Math.abs(fav)<0.05) return '&mdash;';
+  var sign=fav>0.05?'+':'&#8722;';
   return sign+'&pound;'+Math.abs(fav).toFixed(1)+'m';
 }
 
@@ -349,7 +405,8 @@ function _perfFinancePanel(data){
   var bandLine='BUDGET '+(band?escapeHTML(band.label):'')+
     (near?(' &middot; '+Math.abs(near.distance).toFixed(1)+'m to '+escapeHTML(near.threshold.title)):'');
   return [
-    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===0?'':' hidden')+' data-perf-panel="0">',
+    '<div class="rep-perf-panel" role="tabpanel" id="perfPanelFinance" aria-labelledby="perfTabFinance"'+
+      (_perfTab===0?'':' hidden')+' data-perf-panel="0">',
       '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">'+bandLine+'</div>',
       '<table class="rep-perf-table rep-fin-table">',
         '<thead><tr><th>Line</th><th>Plan</th><th>Actual</th><th>Variance</th></tr></thead>',
@@ -382,31 +439,31 @@ function _perfRowList(section){
   return '<div class="rep-perf-list">'+out.join('')+'</div>';
 }
 
+/* True once at least one quarter has been committed, so the dashed year-to-date
+   series (and its legend half) has something to plot. The intra-quarter solid
+   series is always present, so the canvas itself renders every quarter. */
+function _hasYearToDate(data){
+  return !!(data && data.snapshot && data.snapshot.history && data.snapshot.history.length>=1);
+}
+
 function _perfOperationsPanel(data){
   var ctx=_snapshotCtx(data.snapshot);
   var section=getReportSection('operations', data.snapshot.endStats, ctx);
-  /* A trend needs at least two committed points. Q1 legitimately has a single
-     datapoint (no decision recorded yet), so show an explicit insufficient-data
-     state rather than a degenerate single-point chart. */
-  var trend=hasWaitTrendData(data)
-    ? '<div class="rep-perf-chartwrap"><canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas></div>'
-    : '<p class="rep-perf-nodata">Insufficient data for a trend: only one quarter has been recorded so far. '+
-      'The waiting-times trend appears once a second quarter closes.</p>';
+  /* A direct text legend (not a colour key): the solid/dashed distinction and
+     the words carry the meaning in greyscale. The year-to-date half is
+     suppressed in Q1, where that series is absent. */
+  var legend='THIS QUARTER (solid)'+
+    (_hasYearToDate(data) ? ' &middot; YEAR TO DATE (dashed)' : '');
   return [
-    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===1?'':' hidden')+' data-perf-panel="1">',
-      '<h4>Waiting-times trend</h4>',
-      trend,
+    '<div class="rep-perf-panel" role="tabpanel" id="perfPanelOperations" aria-labelledby="perfTabOperations"'+
+      (_perfTab===1?'':' hidden')+' data-perf-panel="1">',
+      '<h4>WAITING-PRESSURE TREND &mdash; LOWER IS BETTER</h4>',
+      '<div class="rep-perf-chartwrap"><canvas id="repWaitTrend" class="rep-perf-chart" width="480" height="180"></canvas></div>',
+      '<p class="rep-perf-legend">'+legend+'</p>',
       _perfRowList(section),
       '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
     '</div>'
   ].join('');
-}
-
-/* True once there are at least two points to plot (the year-opening value plus
-   one committed quarter close). Shared by the panel builder and the chart
-   renderer so they agree on when a trend exists. */
-function hasWaitTrendData(data){
-  return !!(data && data.snapshot && data.snapshot.history && data.snapshot.history.length>=1);
 }
 
 function _perfWorkforcePanel(data){
@@ -414,7 +471,8 @@ function _perfWorkforcePanel(data){
   var section=getReportSection('workforce', data.snapshot.endStats, ctx);
   var band=getMetricBand('morale', data.snapshot.endStats.morale);
   return [
-    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===2?'':' hidden')+' data-perf-panel="2">',
+    '<div class="rep-perf-panel" role="tabpanel" id="perfPanelWorkforce" aria-labelledby="perfTabWorkforce"'+
+      (_perfTab===2?'':' hidden')+' data-perf-panel="2">',
       '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">MORALE '+
         (band?escapeHTML(band.label):'')+'</div>',
       _perfRowList(section),
@@ -442,7 +500,8 @@ function _perfQualityPanel(data){
     alertHtml='<p class="rep-perf-note">No threshold alerts were logged for this quarter.</p>';
   }
   return [
-    '<div class="rep-perf-panel" role="tabpanel"'+(_perfTab===3?'':' hidden')+' data-perf-panel="3">',
+    '<div class="rep-perf-panel" role="tabpanel" id="perfPanelQuality" aria-labelledby="perfTabQuality"'+
+      (_perfTab===3?'':' hidden')+' data-perf-panel="3">',
       '<div class="rep-perf-note rep-perf-band band-'+(band?band.tone:'neutral')+'">SAFETY '+
         (band?escapeHTML(band.label):'')+'</div>',
       _perfRowList(section),
@@ -465,51 +524,84 @@ function _fillReportPerformance(data){
   ].join('');
 }
 
-/* Waiting-times trend from the committed history (oldest first), rendered
-   through the shared line-chart helper. The year-opening position is prepended
-   so the first committed quarter reads as movement from the year's starting
-   point (section 4: GAME.decisions[0].startStats, or initialMetricStats() when
-   empty). Falls back to the single current value when no decisions exist yet.
-   Lower is better, so the series is plotted directly on a 0..100 index. */
+/* Waiting-pressure trend, rendered through the shared line-chart helper. Two
+   series share the same 0->1 x-span even though their time bases differ - the
+   quarter is the foreground reading and the year is context behind it:
+
+     1. This quarter (solid, teal): OPEN plus the three month closes captured in
+        the frozen snapshot. Always four points, every quarter.
+     2. Year to date (dashed, dim): the year-opening value then each committed
+        quarter's close. Only when at least one quarter has been committed.
+
+   Lower is better, so the series plot directly on the 0..100 index. Returns the
+   series array handed to renderLineChart so tests can assert point counts
+   without pixel-diffing. */
 function _drawPerformanceCharts(data){
   var cv=$('repWaitTrend');
-  /* The canvas is only emitted when there is a real trend to draw (see
-     hasWaitTrendData); the single-datapoint case renders an insufficient-data
-     note instead, so there is nothing to plot here. */
-  if(!cv || !hasWaitTrendData(data)) return;
+  if(!cv) return null;
   var g=cv.getContext('2d');
-  var h=data.snapshot.history, labels=[], values=[], i;
-
-  /* opening value of the year, then each committed quarter's close */
-  values.push(h[0].startStats.waiting);
-  labels.push('OPEN');
-  for(i=0;i<h.length;i++){
-    values.push(h[i].endStats.waiting);
-    labels.push(h[i].quarterId);
-  }
+  var snap=data.snapshot;
 
   var W=480, H=180;
   var ss=Math.max(2, Math.ceil((window.devicePixelRatio||1)*2));
   if(cv.width!==W*ss){ cv.width=W*ss; cv.height=H*ss; }
   g.setTransform(ss,0,0,ss,0,0);
 
-  var n=values.length;
-  var xFrac=function(idx){ return n<=1 ? 0.5 : idx/(n-1); };
-  var points=[], xLabels=[];
-  for(i=0;i<n;i++){
-    points.push({xFrac:xFrac(i), value:values[i]});
-    xLabels.push({xFrac:xFrac(i), text:labels[i], align:'center'});
+  /* Series 1 - this quarter, always OPEN/M1/M2/M3. */
+  var qPoints=[
+    {xFrac:0,   value:snap.startStats.waiting},
+    {xFrac:1/3, value:snap.monthEnds[0].stats.waiting},
+    {xFrac:2/3, value:snap.monthEnds[1].stats.waiting},
+    {xFrac:1,   value:snap.monthEnds[2].stats.waiting}
+  ];
+  var xLabels=[
+    {xFrac:0,   text:'OPEN', align:'center'},
+    {xFrac:1/3, text:'M1',   align:'center'},
+    {xFrac:2/3, text:'M2',   align:'center'},
+    {xFrac:1,   text:'M3',   align:'center'}
+  ];
+  var series=[{color:'#23c4b4', width:2, points:qPoints, marker:'all', markerSize:4}];
+
+  /* Series 2 - year to date, only once a quarter has been committed. */
+  var h=snap.history, i, yPoints, xf;
+  if(h && h.length>=1){
+    yPoints=[{xFrac:0, value:h[0].startStats.waiting}];
+    for(i=0;i<h.length;i++){
+      xf=(i+1)/h.length;
+      yPoints.push({xFrac:xf, value:h[i].endStats.waiting});
+    }
+    series.push({color:'#42557a', width:1, dash:[4,3], points:yPoints, marker:'all', markerSize:3});
   }
+
+  /* Tolerance line at the authored `warn` threshold for waiting, read from
+     METRIC_DEFS rather than hard-coded so it cannot drift from the data. */
+  var def=getMetricDef('waiting'), tol=null;
+  if(def && def.thresholds){
+    for(i=0;i<def.thresholds.length;i++){
+      if(def.thresholds[i].severity==='warn'){ tol=def.thresholds[i]; break; }
+    }
+  }
+  var decorate=function(gg, rect, scale){
+    if(!tol) return;
+    var y=Math.round(scale.yOf(tol.at));
+    gg.fillStyle='#e9b44c';
+    gg.fillRect(rect.l, y, rect.plotW, 1);
+    gg.font='bold 9px "Courier New", monospace';
+    gg.textAlign='right'; gg.textBaseline='bottom';
+    gg.fillText(tol.title, rect.r, y-2);
+  };
 
   renderLineChart(g, {
     W:W, H:H, pad:{l:32, r:12, t:14, b:26}, maxV:100,
     yTicks:[0,25,50,75,100], font:'bold 9px "Courier New", monospace',
     colors:{bg:'#fbfcfe', grid:'#d4dae7', yLabel:'#42557a', xLabel:'#42557a'},
     yLabelDx:5, xLabelDy:5,
-    series:[{color:'#23c4b4', width:2, points:points, marker:'all', markerSize:4}],
+    series:series,
     xLabels:xLabels,
+    decorate:decorate,
     frame:'axis', frameColor:'#141b30'
   });
+  return series;
 }
 
 function _drawReportIssueChart(issue){

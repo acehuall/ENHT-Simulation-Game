@@ -414,6 +414,17 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 /* Direct text legend under the trend: solid/dashed and the words carry the
    meaning in greyscale, so colour stays supplementary. */
 .rep-perf-legend{font-size:10px; letter-spacing:1px; text-transform:uppercase; color:#4a5470; margin:0 0 10px;}
+/* Operations tab: gauge and trend sit side by side where there is room and stack
+   below 760px. Both canvases scale to their column and keep their aspect ratio. */
+.rep-perf-opsrow{display:flex; gap:14px; align-items:flex-start; margin-bottom:10px;}
+.rep-perf-opsrow > *{min-width:0;}
+.rep-perf-trendcol{flex:1 1 auto; min-width:0;}
+.rep-gauge-wrap{flex:0 0 300px; display:flex; flex-direction:column;}
+.rep-gauge{display:block; width:100%; max-width:300px; height:auto;
+           border:2px solid #141b30; background:#fbfcfe; margin:0 auto;}
+.rep-gauge-status{font-size:11px; line-height:1.4; margin:6px 0 2px; font-weight:bold;}
+.rep-gauge-legend{font-size:10px; letter-spacing:1px; text-transform:uppercase;
+                  color:#4a5470; margin:0 0 6px;}
 .rep-perf-alerts{display:flex; flex-direction:column; gap:5px; margin:8px 0;}
 .rep-perf-alert,.rep-alert-item{border-left:4px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:6px 9px; font-size:11px; line-height:1.4;}
 .rep-perf-alert b,.rep-alert-item b{display:block; letter-spacing:.5px;}
@@ -423,11 +434,11 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 /* Tone-coloured cells (variance columns, figure values) share the same
    band-{tone} contract; values render on the light paper so tones map to
    paper-legible inks. */
-.rep-perf-cell.band-critical,.rep-metric-grid .rep-metric-row.band-critical em{color:var(--critical);}
-.rep-perf-cell.band-warn,.rep-metric-grid .rep-metric-row.band-warn em{color:#b07d10;}
-.rep-perf-cell.band-neutral,.rep-metric-grid .rep-metric-row.band-neutral em{color:#1a2236;}
-.rep-perf-cell.band-good,.rep-metric-grid .rep-metric-row.band-good em{color:#1e8f4e;}
-.rep-perf-cell.band-great,.rep-metric-grid .rep-metric-row.band-great em{color:#0f8f82;}
+.rep-perf-cell.band-critical,.rep-gauge-status.band-critical,.rep-metric-grid .rep-metric-row.band-critical em{color:var(--critical);}
+.rep-perf-cell.band-warn,.rep-gauge-status.band-warn,.rep-metric-grid .rep-metric-row.band-warn em{color:#b07d10;}
+.rep-perf-cell.band-neutral,.rep-gauge-status.band-neutral,.rep-metric-grid .rep-metric-row.band-neutral em{color:#1a2236;}
+.rep-perf-cell.band-good,.rep-gauge-status.band-good,.rep-metric-grid .rep-metric-row.band-good em{color:#1e8f4e;}
+.rep-perf-cell.band-great,.rep-gauge-status.band-great,.rep-metric-grid .rep-metric-row.band-great em{color:#0f8f82;}
 
 @media (max-width:760px){
   .rep-grid.two,.rep-options{grid-template-columns:1fr;}
@@ -439,6 +450,10 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   .rep-position-grid{grid-template-columns:1fr;}
   .rep-metric-grid{grid-template-columns:repeat(2,1fr);}
   .rep-movement b{width:auto; min-width:110px;}
+  /* Gauge stacks above the trend. The panel scrolls at this width, which is the
+     accepted fallback for small screens. */
+  .rep-perf-opsrow{flex-direction:column;}
+  .rep-gauge-wrap{flex:1 1 auto; width:100%;}
 }
 
 /* One column, still fully labelled - the card text is the accessible copy of

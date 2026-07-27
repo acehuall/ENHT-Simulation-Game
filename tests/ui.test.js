@@ -2820,6 +2820,421 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- BOARD PACK PHASE 5: BENCHMARK BANDS ----------------
+     There is no module system and no Node-side unit harness, so these "pure
+     model" assertions run inside page.evaluate() against the real globals. */
+  console.log('\nboard pack phase 5 benchmark bands:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const bands = REPORTING_BENCHMARKS.operational.occupancyBands;
+      const before = JSON.stringify({
+        coeffs: REPORTING_COEFFS.operational,
+        benchmarks: REPORTING_BENCHMARKS.operational
+      });
+
+      /* Literal boundary values, deliberately NOT fed through
+         deriveOperational() - its float arithmetic will not land exactly on a
+         boundary, which is precisely what makes the `<` / `<=` decision
+         invisible in normal play and easy to revert by accident. */
+      const boundaries = [
+        [88.9, 'good'], [89, 'good'], [89.1, 'neutral'],
+        [91.9, 'neutral'], [92, 'neutral'], [92.1, 'warn'],
+        [94.9, 'warn'], [95, 'warn'], [95.1, 'critical'],
+        [82, 'good'], [99, 'critical']
+      ].map(([value, expected]) => ({
+        value, expected, got: getBenchmarkTone(bands, value)
+      }));
+
+      /* Severity is monotone non-decreasing across the whole arc range. */
+      const rank = ['good', 'neutral', 'warn', 'critical'];
+      let reversals = 0, prev = -1;
+      for (let v = 82; v <= 99.00001; v += 0.5) {
+        const idx = rank.indexOf(getBenchmarkTone(bands, v));
+        if (idx < prev) reversals++;
+        prev = idx;
+      }
+
+      let emptyList = 'threw', nullList = 'threw';
+      try { emptyList = getBenchmarkTone([], 92); } catch (e) { /* leaves 'threw' */ }
+      try { nullList = getBenchmarkTone(null, 92); } catch (e) { /* leaves 'threw' */ }
+
+      /* The gauge model: range from the model's own clamp, value straight off
+         deriveOperational(), and an authored override reaching it. */
+      const base = initialMetricStats();
+      const gaugeBase = getOccupancyGauge(base, null);
+
+      REPORTING_OVERRIDES['__PHASE5__'] = { operational: { occupancy: 97 } };
+      const overridden = getOccupancyGauge(base, { quarterId: '__PHASE5__' });
+      delete REPORTING_OVERRIDES['__PHASE5__'];
+
+      /* Frozen stats must not throw: the gauge derives, it never writes back. */
+      let noMutate = true;
+      try { getOccupancyGauge(Object.freeze(Object.assign({}, base)), null); }
+      catch (e) { noMutate = false; }
+
+      return {
+        boundaries, reversals, emptyList, nullList,
+        min: gaugeBase.min, max: gaugeBase.max,
+        clampLo: REPORTING_COEFFS.operational.occClamp[0],
+        clampHi: REPORTING_COEFFS.operational.occClamp[1],
+        valueMatchesDerivation: gaugeBase.value === deriveOperational(base, null).occupancy,
+        normEqualsBase: REPORTING_BENCHMARKS.operational.occupancyNorm ===
+                        REPORTING_COEFFS.operational.occBase,
+        openingValue: gaugeBase.value,
+        openingTone: gaugeBase.tone,
+        openingDelta: gaugeBase.delta,
+        openingStatus: _occupancyStatusText(gaugeBase),
+        overriddenValue: overridden.value,
+        overriddenTone: overridden.tone,
+        noMutate,
+        modelUnchanged: JSON.stringify({
+          coeffs: REPORTING_COEFFS.operational,
+          benchmarks: REPORTING_BENCHMARKS.operational
+        }) === before
+      };
+    });
+
+    s.boundaries.forEach(b =>
+      eq(b.got, b.expected, 'benchmark bands: occupancy ' + b.value + ' is ' + b.expected));
+    eq(s.reversals, 0, 'benchmark bands: severity never decreases as occupancy rises');
+    eq(s.emptyList, 'neutral', 'benchmark bands: an empty band list returns neutral without throwing');
+    eq(s.nullList, 'neutral', 'benchmark bands: an absent band list returns neutral without throwing');
+    eq(s.min, s.clampLo, 'gauge model: the arc minimum is the model clamp low bound');
+    eq(s.max, s.clampHi, 'gauge model: the arc maximum is the model clamp high bound');
+    ok(s.valueMatchesDerivation, 'gauge model: the value is exactly deriveOperational().occupancy');
+    ok(s.normEqualsBase, 'gauge model: the operating norm equals occBase, so Q1 sits on the norm');
+    eq(s.openingValue, 92, 'gauge model: the opening board position derives to 92');
+    eq(s.openingTone, 'neutral', 'gauge model: 92 is "at norm", not "elevated"');
+    eq(s.openingDelta, 0, 'gauge model: the opening delta from the norm is zero');
+    ok(/Exactly at/.test(s.openingStatus),
+       'gauge model: the opening status line reads "Exactly at the trust operating norm"');
+    eq(s.overriddenValue, 97, 'gauge model: an authored occupancy override reaches the gauge');
+    eq(s.overriddenTone, 'critical', 'gauge model: an overridden value is banded on its own merits');
+    ok(s.noMutate, 'gauge model: deriving from frozen stats does not throw');
+    ok(s.modelUnchanged, 'gauge model: calling it mutates neither the coefficients nor the benchmarks');
+    ok(page._errors.length === 0, 'benchmark bands: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 5: ROW / GAUGE AGREEMENT ---------------- */
+  console.log('\nboard pack phase 5 row agreement:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const rowOf = (section, id) => section.rows.filter(r => r.id === id)[0];
+
+      /* Sweeping `waiting` across its whole authored range walks occupancy over
+         every band boundary from both sides, so this covers the "one either
+         side of each boundary" requirement without hand-picking values. */
+      let toneMismatch = 0, valueMismatch = 0, commentaryMismatch = 0, otherRowMismatch = 0;
+      for (let w = 0; w <= 100.0001; w += 0.5) {
+        const stats = Object.assign(initialMetricStats(), { waiting: w });
+        const section = getReportSection('operations', stats, null);
+        const gauge = getOccupancyGauge(stats, null);
+        const occ = rowOf(section, 'occupancy');
+        const waitingTone = getMetricBand('waiting', w).tone;
+        if (occ.tone !== gauge.tone) toneMismatch++;
+        if (occ.value !== gauge.value) valueMismatch++;
+        if (occ.commentary !== _commentary('waiting', w)) commentaryMismatch++;
+        section.rows.forEach(r => {
+          if (r.id !== 'occupancy' && r.tone !== waitingTone) otherRowMismatch++;
+        });
+      }
+
+      /* A position where the two tone sources genuinely disagree, so the test
+         would fail if the override were dropped and both fell back to
+         `waiting`. Occupancy 82 (good) while waiting 0 is `great`. */
+      const low = Object.assign(initialMetricStats(), { waiting: 0 });
+      const disagreement = {
+        rowTone: rowOf(getReportSection('operations', low, null), 'occupancy').tone,
+        gaugeTone: getOccupancyGauge(low, null).tone,
+        waitingTone: getMetricBand('waiting', 0).tone
+      };
+
+      /* The rendered panel: the occupancy row's value cell carries the gauge's
+         tone through the band-{tone} contract. */
+      resetGameState();
+      quarterComplete = true;
+      openReport();
+      REPORT.page = 1; _syncReportPages(); setPerfTab(1);
+      const rows = document.querySelectorAll('#perfPanelOperations .rep-perf-row');
+      const occRow = rows[0];
+      const rendered = {
+        label: occRow.querySelector('.lbl').textContent,
+        cellClass: occRow.querySelector('.val').className,
+        expected: 'band-' + getOccupancyGauge(REPORT.data.snapshot.endStats,
+                                              _snapshotCtx(REPORT.data.snapshot)).tone
+      };
+      closeReport();
+
+      return { toneMismatch, valueMismatch, commentaryMismatch, otherRowMismatch,
+               disagreement, rendered };
+    });
+
+    eq(s.toneMismatch, 0, 'row agreement: the occupancy row tone equals the gauge tone at every position');
+    eq(s.valueMismatch, 0, 'row agreement: the occupancy row value equals the gauge value');
+    eq(s.commentaryMismatch, 0, 'row agreement: the occupancy commentary is still keyed to waiting');
+    eq(s.otherRowMismatch, 0, 'row agreement: the other four operational rows still take waiting\'s tone');
+    eq(s.disagreement.rowTone, s.disagreement.gaugeTone,
+       'row agreement: the row follows the benchmark where the two tone sources disagree');
+    ok(s.disagreement.rowTone !== s.disagreement.waitingTone,
+       'row agreement: that position really is a disagreement (benchmark ' +
+       s.disagreement.rowTone + ' vs waiting ' + s.disagreement.waitingTone + ')');
+    eq(s.rendered.label, 'Bed occupancy', 'row agreement: the first operations row is Bed occupancy');
+    ok(s.rendered.cellClass.indexOf(s.rendered.expected) >= 0,
+       'row agreement: the rendered occupancy cell carries ' + s.rendered.expected);
+    ok(page._errors.length === 0, 'row agreement: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 5: GAUGE GEOMETRY + RENDERER ---------------- */
+  console.log('\nboard pack phase 5 gauge renderer:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      /* --- angle --- */
+      let angleReversals = 0, prevAngle = -Infinity;
+      for (let v = 82; v <= 99.0001; v += 0.25) {
+        const a = gaugeAngle(v, 82, 99);
+        if (a < prevAngle - 1e-9) angleReversals++;
+        prevAngle = a;
+      }
+      const angles = {
+        atMin: gaugeAngle(82, 82, 99),
+        atMax: gaugeAngle(99, 82, 99),
+        belowMin: gaugeAngle(50, 82, 99),
+        aboveMax: gaugeAngle(140, 82, 99),
+        zeroSpan: gaugeAngle(7, 5, 5),
+        reversals: angleReversals
+      };
+
+      /* --- renderer robustness --- */
+      const cv = document.createElement('canvas');
+      cv.width = 300; cv.height = 180;
+      const bands = [
+        { to: 89, color: '#1e8f4e' }, { to: 92, color: '#1a2236' },
+        { to: 95, color: '#b07d10' }, { to: Infinity, color: '#e05252' }
+      ];
+      const cfg = extra => Object.assign({
+        value: 92, min: 82, max: 99, bands: bands, norm: 92,
+        markerColor: '#1a2236', valueText: '92.0%', bandText: 'AT NORM',
+        minText: '82%', maxText: '99%'
+      }, extra || {});
+
+      const cases = [
+        ['value at min', { value: 82 }], ['value at max', { value: 99 }],
+        ['value below min', { value: 40 }], ['value above max', { value: 140 }],
+        ['norm at min', { norm: 82 }], ['norm at max', { norm: 99 }],
+        ['norm equal to value', { value: 94.2, norm: 94.2 }],
+        ['norm absent', { norm: undefined }], ['norm out of range', { norm: 140 }],
+        ['bands empty', { bands: [] }], ['bands absent', { bands: undefined }],
+        ['bands short of max', { bands: [{ to: 85, color: '#1e8f4e' }] }],
+        ['min equals max', { min: 90, max: 90 }],
+        ['fractional value', { value: 93.47 }]
+      ].map(([name, extra]) => {
+        try {
+          const g = renderSemicircleGauge(cv, cfg(extra));
+          return { name, threw: false, geometry: !!(g && g.markers && g.markers.value) };
+        } catch (e) { return { name, threw: true, geometry: false, message: e.message }; }
+      });
+
+      /* --- null / canvas-less --- */
+      const nullCanvas = renderSemicircleGauge(null, cfg());
+      const notACanvas = renderSemicircleGauge(document.createElement('div'), cfg());
+
+      /* --- markers are disjoint at the same-angle case --- */
+      const same = renderSemicircleGauge(cv, cfg({ value: 92, norm: 92 }));
+      const noNorm = renderSemicircleGauge(cv, cfg({ norm: undefined }));
+
+      /* --- ink, and that the transform does not compound on redraw --- */
+      const ink = () => {
+        const g = cv.getContext('2d');
+        const d = g.getImageData(0, 0, cv.width, cv.height).data;
+        let alpha = 0, nonBg = 0, track = 0;
+        for (let i = 0; i < d.length; i += 16) {
+          alpha += d[i + 3];
+          if (d[i] !== 251 || d[i + 1] !== 252 || d[i + 2] !== 254) nonBg++;
+          /* GAUGE_DEFAULTS.colors.track #d4dae7 */
+          if (d[i] === 212 && d[i + 1] === 218 && d[i + 2] === 231) track++;
+        }
+        return { alpha, nonBg, track, w: cv.width, h: cv.height };
+      };
+      renderSemicircleGauge(cv, cfg());
+      const first = ink();
+      renderSemicircleGauge(cv, cfg());
+      const second = ink();
+
+      /* A band list stopping at 85 leaves 85->99 uncovered; that arc must be
+         the inert track grey, not the chart background. */
+      renderSemicircleGauge(cv, cfg({ bands: [{ to: 85, color: '#1e8f4e' }] }));
+      const partial = ink();
+
+      return {
+        angles, cases,
+        nullCanvas, notACanvas,
+        sameAngle: same.angle === same.normAngle,
+        disjoint: same.markers.norm.r1 < same.markers.value.r0,
+        normNullWhenAbsent: noNorm.markers.norm === null,
+        first, second,
+        partialTrack: partial.track
+      };
+    });
+
+    eq(s.angles.atMin, Math.PI, 'gauge angle: the minimum is the arc start');
+    eq(s.angles.atMax, Math.PI * 2, 'gauge angle: the maximum is the arc end');
+    eq(s.angles.belowMin, Math.PI, 'gauge angle: below the minimum pins to the arc start');
+    eq(s.angles.aboveMax, Math.PI * 2, 'gauge angle: above the maximum pins to the arc end');
+    eq(s.angles.zeroSpan, Math.PI, 'gauge angle: a zero span returns the arc start, not NaN');
+    eq(s.angles.reversals, 0, 'gauge angle: monotone non-decreasing across the range');
+    s.cases.forEach(c => {
+      ok(!c.threw, 'gauge renderer: does not throw for ' + c.name + (c.threw ? ' (' + c.message + ')' : ''));
+      ok(c.geometry, 'gauge renderer: returns resolved geometry for ' + c.name);
+    });
+    ok(s.nullCanvas === null, 'gauge renderer: returns null for a null canvas');
+    ok(s.notACanvas === null, 'gauge renderer: returns null for an element with no getContext');
+    ok(s.sameAngle, 'gauge renderer: value and norm share an angle when they share a value');
+    ok(s.disjoint, 'gauge renderer: the value marker and the norm tick never overlap radially');
+    ok(s.normNullWhenAbsent, 'gauge renderer: markers.norm is null when no norm is given');
+    ok(s.first.alpha > 0, 'gauge renderer: the canvas renders non-transparent pixels');
+    ok(s.first.nonBg > 0, 'gauge renderer: the canvas renders pixels that are not the flat background');
+    eq(s.second.w, s.first.w, 'gauge renderer: canvas.width is unchanged on redraw');
+    eq(s.second.h, s.first.h, 'gauge renderer: canvas.height is unchanged on redraw');
+    eq(s.second.nonBg, s.first.nonBg, 'gauge renderer: redrawing is identical (the transform does not compound)');
+    ok(s.partialTrack > 0, 'gauge renderer: an arc range no band covers is drawn in the inert track grey');
+    ok(page._errors.length === 0, 'gauge renderer: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 5: OPERATIONS TAB INTEGRATION ---------------- */
+  console.log('\nboard pack phase 5 operations tab:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const snapshot = () => JSON.stringify({
+        stats: GAME.stats, decisions: GAME.decisions, alerts: GAME.alerts, roles: GAME.roles
+      });
+
+      resetGameState();
+      quarterComplete = true;
+      const before = snapshot();
+      openReport();
+
+      const cv = document.getElementById('repOccGauge');
+      const panel = document.getElementById('perfPanelOperations');
+      const occRow = panel.querySelectorAll('.rep-perf-row')[0];
+      const status = panel.querySelector('.rep-gauge-status');
+      /* Captured while the pack is open: REPORT.data is the frozen snapshot the
+         panel was built from, and the gauge must print exactly the row's figure. */
+      const gaugeValueText = _perfFixed(
+        getOccupancyGauge(REPORT.data.snapshot.endStats,
+                          _snapshotCtx(REPORT.data.snapshot)).value, 1) + '%';
+
+      /* Every page and every tab, collecting the whole pack's markup so the
+         terminology guard cannot be dodged by a string that only appears on a
+         page the test never visited. */
+      let allHtml = '';
+      for (let p = 0; p < REPORT_PAGES.length; p++) {
+        REPORT.page = p; _syncReportPages();
+        for (let t = 0; t < getPerfTabCount(); t++) { setPerfTab(t); allHtml += $('repRoot').innerHTML; }
+      }
+      REPORT.page = 0; _syncReportPages(); setPerfTab(0);
+      closeReport();
+
+      return {
+        hasGauge: !!cv,
+        label: cv ? (cv.getAttribute('aria-label') || '') : '',
+        fallback: cv ? (cv.textContent || '').trim() : '',
+        role: cv ? cv.getAttribute('role') : '',
+        gaugeValueText: gaugeValueText,
+        rowValueText: occRow.querySelector('.val').textContent,
+        statusText: status ? status.textContent : '',
+        statusToned: /band-(critical|warn|neutral|good|great)/.test(status ? status.className : ''),
+        /* the gauge block leads the panel, above the trend */
+        gaugeBeforeTrend: panel.innerHTML.indexOf('repOccGauge') <
+                          panel.innerHTML.indexOf('repWaitTrend'),
+        terminology: {
+          national:  /national standard/i.test(allHtml),
+          nhsTarget: /nhs target/i.test(allHtml),
+          statutory: /statutory standard/i.test(allHtml),
+          legal:     /safe legal limit/i.test(allHtml)
+        },
+        pageCount: REPORT_PAGES.length,
+        tabCount: getPerfTabCount(),
+        unchanged: before === snapshot()
+      };
+    });
+
+    ok(s.hasGauge, 'operations tab: the panel contains the occupancy gauge canvas');
+    eq(s.role, 'img', 'operations tab: the gauge canvas is role="img"');
+    ok(s.label.length > 0, 'operations tab: the gauge canvas has a non-empty aria-label');
+    ok(s.fallback.length > 0, 'operations tab: the gauge canvas carries text fallback content');
+    eq(s.rowValueText, s.gaugeValueText,
+       'operations tab: the printed gauge value matches the row value to one decimal place');
+    ok(/percentage points/.test(s.statusText) ? /above|below/.test(s.statusText)
+                                              : /Exactly at/.test(s.statusText),
+       'operations tab: the status line states the distance from the norm in plain language');
+    ok(s.statusToned, 'operations tab: the status line carries a band-{tone} class');
+    ok(s.gaugeBeforeTrend, 'operations tab: the gauge sits above the waiting-pressure trend');
+    ok(!s.terminology.national,  'terminology: the pack never claims a national standard');
+    ok(!s.terminology.nhsTarget, 'terminology: the pack never claims an NHS target');
+    ok(!s.terminology.statutory, 'terminology: the pack never claims a statutory standard');
+    ok(!s.terminology.legal,     'terminology: the pack never claims a safe legal limit');
+    eq(s.pageCount, 4, 'operations tab: REPORT_PAGES still has exactly four pages');
+    eq(s.tabCount, 4, 'operations tab: there are still exactly four performance tabs');
+    ok(s.unchanged, 'operations tab: GAME is byte-identical after opening, paging, tabbing and closing');
+    ok(page._errors.length === 0, 'operations tab: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK PHASE 5: OPERATIONS LAYOUT AT 1280x720 ---------------- */
+  console.log('\nboard pack phase 5 operations layout:');
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.goto(PAGE_URL);
+    await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
+    await page.waitForTimeout(400);
+    const s = await page.evaluate(() => {
+      quarterComplete = true;
+      openReport();
+      REPORT.page = 1; _syncReportPages(); setPerfTab(1);
+      const doc = document.documentElement;
+      const pages = document.querySelector('.rep-pages');
+      const modal = document.querySelector('.rep-modal').getBoundingClientRect();
+      const gauge = document.getElementById('repOccGauge').getBoundingClientRect();
+      const trend = document.getElementById('repWaitTrend').getBoundingClientRect();
+      const foot = document.getElementById('repClose').getBoundingClientRect();
+      return {
+        docOverflowX: doc.scrollWidth - doc.clientWidth,
+        pagesOverflowX: pages.scrollWidth - pages.clientWidth,
+        gaugeW: gauge.width, gaugeH: gauge.height,
+        gaugeInsideModal: gauge.left >= modal.left && gauge.right <= modal.right,
+        gaugeInViewport: gauge.top >= 0 && gauge.bottom <= window.innerHeight,
+        trendInViewport: trend.top >= 0 && trend.bottom <= window.innerHeight,
+        /* side by side at this width, not stacked */
+        sideBySide: gauge.right <= trend.left + 1,
+        footInViewport: foot.top >= 0 && foot.bottom <= window.innerHeight
+      };
+    });
+    ok(s.docOverflowX <= 0, 'operations layout 1280x720: the document does not scroll horizontally');
+    ok(s.pagesOverflowX <= 0, 'operations layout 1280x720: the performance page does not scroll horizontally');
+    ok(s.gaugeW > 0 && s.gaugeH > 0, 'operations layout 1280x720: the gauge has a rendered size');
+    ok(s.gaugeInsideModal, 'operations layout 1280x720: the gauge sits inside the modal horizontally');
+    ok(s.gaugeInViewport, 'operations layout 1280x720: the whole gauge is on screen without scrolling');
+    ok(s.trendInViewport, 'operations layout 1280x720: the whole trend is on screen without scrolling');
+    ok(s.sideBySide, 'operations layout 1280x720: the gauge and the trend sit side by side');
+    ok(s.footInViewport, 'operations layout 1280x720: the pack footer is reachable');
+    ok(errors.length === 0, 'operations layout 1280x720: no console/page errors');
+    await page.close();
+  }
+
   await browser.close();
 
   console.log('\n' + '-'.repeat(48));

@@ -462,8 +462,12 @@ function _fillReportPage3(data){
   var html=[], i, o;
   for(i=0;i<data.options.length;i++){
     o=data.options[i];
-    html.push('<button type="button" class="rep-option" data-index="'+i+'">'+
+    /* aria-pressed makes the card a toggle rather than a commit button: the
+       first click only proposes an option, so the card has a selected state
+       that assistive tech has to be able to read back. */
+    html.push('<button type="button" class="rep-option" data-index="'+i+'" aria-pressed="false">'+
       '<h4>'+escapeHTML(o.label+' - '+o.title)+'</h4>'+
+      '<span class="rep-option-flag" hidden>Selected &#8212; not confirmed</span>'+
       '<p class="rep-option-summary">'+escapeHTML(o.description)+'</p>'+
       '<div class="rep-option-cost"><span class="rep-cost-label">Cost this quarter</span>'+
         _optionCostText(o.cost)+'</div>'+
@@ -473,10 +477,55 @@ function _fillReportPage3(data){
   return [
     '<div class="rep-paper">',
       _reportPageHead('options'),
+      '<p class="rep-options-intro">Select an option, discuss it as a board, then confirm your decision.</p>',
       '<div class="rep-options">'+html.join('')+'</div>',
+      /* Proposal and commit control share a row so the button stays beside
+         what it commits, and so page 4 still fits a projector without
+         scrolling the confirm control off the bottom. */
+      '<div class="rep-decide">',
+        '<div class="rep-proposed" id="repProposed" aria-live="polite" hidden></div>',
+        /* Plain text content only: the delegated handler in report-overlay.js
+           resolves actions with closest(), but a childless button also keeps
+           the raw e.target path correct if that ever changes back. */
+        '<button type="button" class="btn rep-confirm" id="repConfirm" ' +
+          'data-report-action="confirm-decision" disabled>Confirm Board Decision</button>',
+      '</div>',
       '<div class="rep-outcome" id="repOutcome" hidden></div>',
     '</div>'
   ].join('');
+}
+
+/* Compact restatement of the option under discussion, shown between selection
+   and confirmation. It reuses the authored `cost` fact through
+   _optionCostText() and never reads o.effects, so the panel supports the
+   board's discussion without previewing what the simulation will do.
+   `confirmed` switches the same panel to the committed wording. */
+function renderProposedDecision(option, confirmed){
+  var el=$('repProposed'), announcement;
+  if(!el || !option) return;
+  if(confirmed){
+    /* Once committed, the detail below is redundant with the decision outcome
+       panel, so the confirmed form collapses to a one-line record. */
+    announcement='Board decision confirmed: '+option.title+'.';
+    el.className='rep-proposed confirmed';
+    el.innerHTML='<h4>Confirmed Board Decision</h4>'+
+      '<p class="rep-proposed-title">'+escapeHTML(option.label+' - '+option.title)+'</p>'+
+      '<p class="rep-proposed-status confirmed">Confirmed</p>'+
+      '<p class="rep-sr">'+escapeHTML(announcement)+'</p>';
+    el.hidden=false;
+    return;
+  }
+  announcement='Option '+option.label+', '+option.title+', selected. Decision not yet confirmed.';
+  el.className='rep-proposed';
+  el.innerHTML='<h4>Proposed Board Decision</h4>'+
+    '<p class="rep-proposed-title">'+escapeHTML(option.label+' - '+option.title)+'</p>'+
+    '<p class="rep-proposed-summary">'+escapeHTML(option.description)+'</p>'+
+    '<div class="rep-option-cost"><span class="rep-cost-label">Cost this quarter</span>'+
+      _optionCostText(option.cost)+'</div>'+
+    '<p class="rep-proposed-tradeoff">'+escapeHTML(option.tradeoff||'')+'</p>'+
+    '<p class="rep-proposed-status">Not yet confirmed</p>'+
+    '<p class="rep-sr">'+escapeHTML(announcement)+'</p>';
+  el.hidden=false;
 }
 
 /* ---------- Performance Analysis page (phase 3) ----------

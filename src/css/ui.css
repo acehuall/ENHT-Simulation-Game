@@ -323,8 +323,20 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   border:2px solid #141b30; background:#f5f7fb; color:#1a2236; padding:16px 18px;
   text-align:left; font-family:inherit; cursor:pointer; display:flex; flex-direction:column; gap:12px;
 }
-.rep-option:hover,.rep-option.selected{border-color:#23c4b4; box-shadow:inset 0 0 0 2px #23c4b4;}
+/* Three card states, deliberately distinct: hover/proposed share the teal
+   outline (a proposal is reversible), while the confirmed card goes solid and
+   tinted so "we are discussing this" never reads as "we have committed". */
+.rep-option:hover,.rep-option.proposed{border-color:#23c4b4; box-shadow:inset 0 0 0 2px #23c4b4;}
+.rep-option.selected{border-color:#0f8f82; background:#e9f6f4; box-shadow:inset 0 0 0 3px #0f8f82;}
+.rep-option.locked{cursor:default;}
+.rep-option.locked:hover{border-color:#141b30; box-shadow:none;}
+.rep-option.locked.selected:hover{border-color:#0f8f82; box-shadow:inset 0 0 0 3px #0f8f82;}
 .rep-option:focus-visible{outline:3px solid #141b30; outline-offset:2px;}
+.rep-option-flag{
+  align-self:flex-start; font-size:10px; letter-spacing:1px; text-transform:uppercase;
+  background:#23c4b4; color:#0b1220; padding:2px 6px; font-weight:bold;
+}
+.rep-option-flag[hidden]{display:none;}
 .rep-option h4{padding-right:0; margin:0;}
 .rep-option-summary{font-size:12px; line-height:1.45; color:#2a3550; margin:0;}
 .rep-option-cost{
@@ -346,6 +358,42 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-root .bad{color:#c23434;}
 .rep-root .flat{color:#4a5470;}
 .rep-outcome{border:2px solid #23c4b4; background:#e9f6f4; padding:10px; margin-top:10px;}
+
+/* ---------- select -> discuss -> confirm (page 4) ----------
+   The instruction line and the proposed-decision panel carry the two-step
+   interaction; the confirm button is the only control on the page that
+   commits anything, so it is styled unlike the paging buttons in the foot. */
+.rep-options-intro{
+  font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#42557a;
+  margin:0; border-left:4px solid #23c4b4; padding-left:8px;
+}
+.rep-decide{display:flex; align-items:center; gap:14px;}
+.rep-proposed{border:2px dashed #23c4b4; background:#eef2f8; padding:10px 12px; flex:1; min-width:0;}
+.rep-proposed[hidden]{display:none;}
+.rep-proposed.confirmed{border-style:solid; border-color:#0f8f82; background:#e9f6f4;}
+.rep-proposed p{margin-bottom:4px;}
+.rep-proposed .rep-proposed-title{font-weight:bold; font-size:13px;}
+.rep-proposed .rep-option-cost{margin:6px 0;}
+.rep-proposed-tradeoff{font-style:italic; color:#42557a;}
+.rep-proposed-status{
+  font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#b07d10;
+  margin-bottom:0; font-weight:bold;
+}
+.rep-proposed-status.confirmed{color:#0f8f82;}
+.rep-confirm{
+  flex:0 0 auto; background:#23c4b4; border-color:#0f8f82; color:#0b1220;
+  font-weight:bold; font-size:12px; padding:12px 18px; max-width:170px; white-space:normal;
+}
+.rep-confirm:hover{background:#2fded0; border-color:#0f8f82; color:#0b1220;}
+.rep-confirm:focus-visible{outline:3px solid #141b30; outline-offset:2px;}
+.rep-confirm:disabled{background:#c3cbdc; border-color:#98a3bd; color:#5b6580; cursor:not-allowed;}
+.rep-confirm[hidden]{display:none;}
+/* Announcement text for screen readers only - the live region has to say more
+   than the visible status line without repeating it on screen. */
+.rep-sr{
+  position:absolute; width:1px; height:1px; margin:-1px; padding:0;
+  overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; border:0;
+}
 
 /* ---------- Performance Analysis page (phase 3) ---------- */
 .rep-perf-tabs{display:flex; gap:6px; flex-wrap:wrap; border-bottom:3px solid #23c4b4; margin-bottom:14px;}
@@ -442,6 +490,8 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 
 @media (max-width:760px){
   .rep-grid.two,.rep-options{grid-template-columns:1fr;}
+  .rep-decide{flex-direction:column; align-items:stretch;}
+  .rep-confirm{max-width:none;}
   .rep-paper{min-height:0;}
   .rep-foot{flex-wrap:wrap;}
   .rep-foot .decision{margin-left:0; width:100%;}

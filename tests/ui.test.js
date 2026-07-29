@@ -67,8 +67,9 @@ async function driveToYearEnd(page, roles) {
     }
     quarterComplete = true;
     openReport();
-    _chooseReportOption(0);        // records the Q4 decision
-    goToNextReportQuarter();       // 'year-complete' -> closeReport + openYearEnd
+    _selectReportOption(0);            // proposes the Q4 option, records nothing
+    _confirmSelectedReportOption();    // records the Q4 decision
+    goToNextReportQuarter();           // 'year-complete' -> closeReport + openYearEnd
   }, roles || null);
 }
 
@@ -178,6 +179,12 @@ async function driveToYearEnd(page, roles) {
 
     for (let step = 1; step < initial.descriptorLength; step++) await page.click('#repNext');
     await page.click('.rep-option[data-index="0"]');
+    const proposed = await page.evaluate(() => ({
+      nextQuarterHidden: document.getElementById('repNextQuarter').hidden,
+      locked: REPORT.locked
+    }));
+    ok(proposed.nextQuarterHidden && !proposed.locked, 'board pack: selecting an option does not record a decision');
+    await page.click('#repConfirm');
     const recorded = await page.evaluate(() => ({
       nextQuarterVisible: !document.getElementById('repNextQuarter').hidden,
       outcomeVisible: !document.getElementById('repOutcome').hidden,
@@ -1716,17 +1723,274 @@ async function driveToYearEnd(page, roles) {
     ok(opts.firstCostSpend.charCodeAt(0) === 0x2212 && opts.firstCostSpend.indexOf('£') > 0,
       'options: a funded option shows expenditure with an explicit minus');
 
-    /* The decision still resolves and applies its effect after all this. */
+    /* The decision still resolves and applies its effect after all this -
+       now through the two-step select-then-confirm path. */
     const resolved = await page.evaluate(() => {
       const before = GAME.stats.budget;
-      _chooseReportOption(0);
-      return { locked: REPORT.locked, changed: GAME.stats.budget !== before };
+      _selectReportOption(0);
+      const afterSelect = GAME.stats.budget;
+      _confirmSelectedReportOption();
+      return {
+        locked: REPORT.locked,
+        unchangedBySelect: afterSelect === before,
+        changed: GAME.stats.budget !== before
+      };
     });
-    ok(resolved.locked, 'options: choosing an option locks in the decision');
+    ok(resolved.unchangedBySelect, 'options: selecting an option leaves the running stats alone');
+    ok(resolved.locked, 'options: confirming an option locks in the decision');
     ok(resolved.changed, 'options: the chosen effect still applies to the running stats');
 
     ok(page._errors.length === 0, 'options page: no console/page errors');
     await page.close();
+  }
+
+  /* ---------------- BOARD DECISION SAFETY (select -> discuss -> confirm) ----
+     Clicking an option card must only propose it. Nothing is committed until
+     the separate Confirm Board Decision button is pressed, so a stray click
+     during a facilitated session cannot spend the quarter. */
+  console.log('\nboard decision safety:');
+  {
+    /* Force the pack open on the options page. The pack is gated on
+       quarterComplete, and confirmBoardDecision() returns null without it. */
+    const openOptions = page => page.evaluate(() => {
+      /* Pause first so a natural quarter end cannot reopen the pack mid-test. */
+      paused = true;
+      quarterComplete = true;
+      openReport();
+      REPORT.page = REPORT_PAGES.map(p => p.id).indexOf('options');
+      _syncReportPages();
+    });
+    const snapshot = page => page.evaluate(() => ({
+      decisions: GAME.decisions.length,
+      budget: GAME.stats.budget,
+      stats: JSON.stringify(GAME.stats),
+      selectedOptionId: GAME.selectedOptionId,
+      quarterDecision: !!getDecisionForQuarter(getCurrentQuarterId()),
+      keys: Object.keys(GAME.decisionByQuarterId).length
+    }));
+    const cardState = page => page.evaluate(() => {
+      const cards = Array.from(document.querySelectorAll('.rep-option'));
+      const confirm = document.getElementById('repConfirm');
+      const proposedPanel = document.getElementById('repProposed');
+      return {
+        proposed: cards.map(c => c.classList.contains('proposed')),
+        selected: cards.map(c => c.classList.contains('selected')),
+        pressed: cards.map(c => c.getAttribute('aria-pressed')),
+        flags: cards.map(c => !c.querySelector('.rep-option-flag').hidden),
+        confirmExists: !!confirm,
+        confirmHidden: !confirm || confirm.hidden,
+        confirmDisabled: !confirm || confirm.disabled,
+        panelHidden: proposedPanel.hidden,
+        panelText: proposedPanel.textContent,
+        panelLive: proposedPanel.getAttribute('aria-live'),
+        locked: REPORT.locked,
+        selectedIndex: REPORT.selectedOptionIndex
+      };
+    });
+
+    /* -- Test 1: selecting does not mutate game state -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      const before = await snapshot(page);
+      const intro = await page.$eval('.rep-options-intro', el => el.textContent.trim());
+      const idle = await cardState(page);
+      eq(intro, 'Select an option, discuss it as a board, then confirm your decision.',
+        'safety: the options page explains select -> discuss -> confirm');
+      ok(idle.proposed.every(v => !v) && idle.selected.every(v => !v),
+        'safety: no option is preselected when the page opens');
+      ok(idle.confirmDisabled, 'safety: confirm starts disabled');
+      ok(idle.panelHidden, 'safety: the proposed-decision panel starts hidden');
+      eq(idle.panelLive, 'polite', 'safety: the proposed-decision panel is a polite live region');
+
+      await page.click('.rep-option[data-index="0"]');
+      const after = await snapshot(page);
+      const sel = await cardState(page);
+      ok(sel.proposed[0] && sel.proposed.slice(1).every(v => !v), 'safety: the clicked card is marked proposed');
+      ok(sel.selected.every(v => !v), 'safety: a proposed card is not marked confirmed');
+      eq(sel.pressed[0], 'true', 'safety: the proposed card exposes aria-pressed="true"');
+      ok(sel.flags[0], 'safety: the proposed card shows the not-confirmed flag');
+      ok(!sel.confirmDisabled && !sel.confirmHidden, 'safety: selecting enables the confirm button');
+      eq(after.decisions, before.decisions, 'safety: selecting adds no decision');
+      eq(after.stats, before.stats, 'safety: selecting leaves every stat unchanged');
+      eq(after.selectedOptionId, before.selectedOptionId, 'safety: selecting does not write GAME.selectedOptionId');
+      ok(!after.quarterDecision, 'safety: no decision exists for the quarter after selecting');
+      eq(after.keys, before.keys, 'safety: decisionByQuarterId is untouched by selecting');
+      ok(!sel.locked, 'safety: the pack is not locked by selecting');
+      ok(page._errors.length === 0, 'safety: selection: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 2: the selection can be changed -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      await page.click('.rep-option[data-index="0"]');
+      await page.click('.rep-option[data-index="1"]');
+      const s = await cardState(page);
+      const state = await snapshot(page);
+      const titleB = await page.evaluate(() => getCurrentQuarter().options[1].title);
+      ok(!s.proposed[0] && s.proposed[1], 'safety: re-selecting moves the proposal to the new card');
+      eq(s.pressed[0], 'false', 'safety: the abandoned card resets aria-pressed');
+      ok(s.flags.filter(Boolean).length === 1, 'safety: exactly one not-confirmed flag is shown');
+      eq(s.selectedIndex, 1, 'safety: report-local state tracks the new selection');
+      ok(s.panelText.indexOf(titleB) >= 0, 'safety: the proposed panel shows the newly selected option');
+      ok(s.panelText.indexOf('Not yet confirmed') >= 0, 'safety: the proposed panel says it is not yet confirmed');
+      eq(state.decisions, 0, 'safety: changing the selection records nothing');
+      ok(page._errors.length === 0, 'safety: re-selection: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 3: confirming records exactly one decision, through the DOM -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      const before = await snapshot(page);
+      const expected = await page.evaluate(() => getCurrentQuarter().options[1].id);
+      await page.click('.rep-option[data-index="1"]');
+      await page.click('#repConfirm');
+      const after = await snapshot(page);
+      const s = await cardState(page);
+      const shown = await page.evaluate(() => ({
+        decision: document.getElementById('repDecision').textContent,
+        outcomeVisible: !document.getElementById('repOutcome').hidden,
+        nextQuarterVisible: !document.getElementById('repNextQuarter').hidden,
+        recordedId: getDecisionForQuarter(getCurrentQuarterId()).optionId
+      }));
+      eq(after.decisions, before.decisions + 1, 'safety: confirming records exactly one decision');
+      eq(shown.recordedId, expected, 'safety: the recorded option is the one that was selected');
+      ok(after.budget !== before.budget, 'safety: the confirmed effect applies to the running stats');
+      ok(s.selected[1] && !s.proposed[1], 'safety: the confirmed card switches to the recorded styling');
+      ok(s.locked, 'safety: confirming locks the option cards');
+      ok(shown.decision.indexOf('BOARD DECISION:') === 0, 'safety: the recorded-decision text appears');
+      ok(shown.outcomeVisible, 'safety: the decision outcome is revealed after confirmation');
+      ok(shown.nextQuarterVisible, 'safety: the next-quarter control appears after confirmation');
+      ok(s.confirmHidden || s.confirmDisabled, 'safety: the confirm control retires after commitment');
+      ok(s.panelText.indexOf('Board decision confirmed') >= 0, 'safety: confirmation is announced in the live region');
+      ok(page._errors.length === 0, 'safety: confirmation: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 4: double confirmation is safe -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      const before = await snapshot(page);
+      /* Two presses in the same task, with no await between them, is the
+         closest reproduction of an impatient double click. */
+      const after = await page.evaluate(() => {
+        _selectReportOption(0);
+        const btn = document.getElementById('repConfirm');
+        btn.click();
+        const afterFirst = GAME.stats.budget;
+        btn.click();                       // the impatient second click
+        _confirmSelectedReportOption();    // and a direct re-entry for good measure
+        return {
+          decisions: GAME.decisions.length,
+          budget: GAME.stats.budget,
+          afterFirst: afterFirst,
+          keys: Object.keys(GAME.decisionByQuarterId).length
+        };
+      });
+      eq(after.decisions, 1, 'safety: a double confirm records exactly one decision');
+      eq(after.keys, before.keys + 1, 'safety: a double confirm adds one quarter entry');
+      ok(after.afterFirst !== before.budget, 'safety: the first confirm applies the effect');
+      eq(after.budget, after.afterFirst, 'safety: the second confirm does not re-apply the effect');
+      ok(page._errors.length === 0, 'safety: double confirm: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 5: closing discards an unconfirmed selection -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      await page.click('.rep-option[data-index="2"]');
+      await page.click('#repClose');
+      await openOptions(page);
+      const s = await cardState(page);
+      const state = await snapshot(page);
+      ok(s.proposed.every(v => !v) && s.selected.every(v => !v), 'safety: reopening clears the unconfirmed selection');
+      eq(s.selectedIndex, null, 'safety: reopening resets the report-local selection');
+      ok(s.confirmDisabled || s.confirmHidden, 'safety: reopening leaves confirm unavailable');
+      ok(s.panelHidden, 'safety: reopening hides the proposed-decision panel');
+      eq(state.decisions, 0, 'safety: selecting then closing records nothing');
+      ok(page._errors.length === 0, 'safety: discard: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 6: a recorded decision reopens read-only -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      await page.click('.rep-option[data-index="1"]');
+      await page.click('#repConfirm');
+      const committed = await snapshot(page);
+      await page.click('#repClose');
+      await openOptions(page);
+      const reopened = await cardState(page);
+      const decision = await page.$eval('#repDecision', el => el.textContent);
+      /* force: a locked card is aria-disabled, which Playwright treats as
+         un-actionable - but a real user can still click it, so the click has
+         to be delivered and shown to be inert. */
+      await page.click('.rep-option[data-index="3"]', { force: true });
+      const afterStrayClick = await cardState(page);
+      const state = await snapshot(page);
+      ok(reopened.selected[1], 'safety: the recorded option reopens selected');
+      ok(reopened.confirmHidden || reopened.confirmDisabled, 'safety: a recorded quarter offers no active confirm control');
+      ok(decision.indexOf('(RECORDED)') > 0, 'safety: the (RECORDED) suffix survives');
+      ok(afterStrayClick.selected[1] && !afterStrayClick.proposed[3],
+        'safety: clicking another card on a recorded quarter does nothing');
+      eq(state.decisions, committed.decisions, 'safety: a recorded quarter cannot be decided twice');
+      eq(state.budget, committed.budget, 'safety: a recorded quarter does not re-apply its effect');
+      ok(page._errors.length === 0, 'safety: read-only: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 7: keyboard reaches selection and confirmation -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      await page.focus('.rep-option[data-index="0"]');
+      await page.keyboard.press('Enter');
+      const s = await cardState(page);
+      const mid = await snapshot(page);
+      ok(s.proposed[0], 'safety: Enter on a focused card selects it');
+      eq(s.pressed[0], 'true', 'safety: keyboard selection sets aria-pressed');
+      eq(mid.decisions, 0, 'safety: keyboard selection commits nothing');
+
+      /* Tab from the last card to the confirm button, then activate it. */
+      await page.focus('.rep-option[data-index="3"]');
+      await page.keyboard.press('Tab');
+      const focused = await page.evaluate(() => document.activeElement.id);
+      eq(focused, 'repConfirm', 'safety: Tab reaches the confirm button');
+      await page.keyboard.press('Enter');
+      const after = await snapshot(page);
+      eq(after.decisions, 1, 'safety: Enter on the confirm button records exactly one decision');
+      ok(page._errors.length === 0, 'safety: keyboard: no console/page errors');
+      await page.close();
+    }
+
+    /* -- Test 8: a real mouse click at the button centre commits -- */
+    {
+      const page = await freshPage(browser);
+      await page.waitForTimeout(200);
+      await openOptions(page);
+      await page.click('.rep-option[data-index="0"] .rep-option-summary'); // click a child node
+      const proposed = await cardState(page);
+      ok(proposed.proposed[0], 'safety: a click on a card child still selects the card');
+      await page.click('#repConfirm'); // real mouse click at the element centre
+      const after = await snapshot(page);
+      eq(after.decisions, 1, 'safety: a real click at the confirm button centre commits the decision');
+      ok(page._errors.length === 0, 'safety: hit target: no console/page errors');
+      await page.close();
+    }
   }
 
   /* ---------------- PHASE 4: TIMELINE SELF-TEST STILL CLEAN ---------------- */

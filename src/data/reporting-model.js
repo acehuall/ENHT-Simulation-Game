@@ -35,23 +35,98 @@ var REPORTING_COEFFS = {
     agencyBase:          6,   kAgency: 0.12,          /* bank & agency rises as morale falls */
     nonPayBase:         34,   kNonPay: 0.25           /* non-pay rises as budget falls */
   },
+  /* ---------- Operations (X10) ----------
+     Every figure here used to be `base + k x (waiting - start)`, which made five
+     rows five views of one number: their year-end correlations across the 256
+     legal decision paths ran 0.83 - 0.997, and two of them could never reach
+     their own `critical` band at all. Each now carries a DISTINCT second driver.
+
+     TWO COEFFICIENTS THAT LOOK ODD AND ARE NOT. Length of stay is deliberately
+     MORALE-LED (kLosMor > kLosOcc) while ambulance handovers are deliberately
+     OCCUPANCY-LED (kHandOcc >> kHs). That asymmetry is the whole reason the two
+     rows say different things: morale and safety themselves correlate 0.88 across
+     the legal paths, so two figures that are BOTH occupancy-led are two views of
+     occupancy however different their second driver reads on paper. Swapping which
+     driver dominates takes the pair from 0.97 to 0.86. Do not "tidy" them into
+     the same shape.
+
+     See the layering rule above _deriveAnchors() for why the dependants read
+     `occupancyRaw` and `vacancyRateRaw` rather than the clamped display values. */
   operational: {
+    /* Layer-1 anchor. Occupancy already traverses its whole clamp and reaches all
+       four authored bands, so kOcc is deliberately left alone. */
     occBase:  92,  kOcc:  0.35, occClamp:  [82, 99],       /* % */
-    losBase: 100,  kLos:  0.40, losClamp:  [90, 125],      /* index */
-    dtocBase: 35,  kDtoc: 0.60, dtocClamp: [0, 80],        /* beds */
-    handBase: 20,  kHand: 0.50, kHs: 0.40, handClamp: [0, Infinity], /* count */
-    cancBase:  8,  kCanc: 0.40, cancClamp: [0, Infinity]   /* count */
+    /* Length of stay: a full hospital discharges slowly (kLosOcc, on the pre-clamp
+       occupancy anchor), and discharge pace depends on having the staff to do the
+       discharging (kLosMor, on falling morale) - which is the larger term, see
+       above. The floor moved from 90 to 85, the one clamp change in this commit:
+       measured at a floor of 90, 13.9% of all 1024 quarter-close snapshots sat
+       exactly on it, over the 10% budget, because 10 points of downward headroom
+       against a base of 100 is not enough once the figure has two drivers. At 85
+       it is 2.2%. `good <= 95` is unaffected, so losPctBands needed no edit. */
+    losBase: 100,  kLosOcc: 0.70, kLosMor: 0.80, losClamp: [85, 125], /* index */
+    /* Delayed transfers: kDtoc is weakened (0.60 -> 0.50) but the real change is
+       that waiting is no longer the ONLY driver - correlation with occupancy falls
+       from 0.997 to 0.79 at year end and 0.16 across all snapshots. DTOC is mostly
+       a social-care and community-capacity problem the trust does not control,
+       which is why the authored per-quarter term in REPORTING_EXOGENOUS carries so
+       much of it. What the board does control is whether it can fund brokerage,
+       transport and discharge co-ordination, hence kDtocBudget: beds held per £1m
+       of deficit. */
+    dtocBase: 35,  kDtoc: 0.50, kDtocBudget: 2.40, dtocClamp: [0, 80], /* beds */
+    /* Ambulance handovers: re-pointed from `waiting` to the occupancy anchor so
+       the causal chain reads front door -> beds -> handover, with safety as the
+       second driver as before. Occupancy-led on purpose - see above. */
+    handBase: 20,  kHandOcc: 1.25, kHs: 0.40, handClamp: [0, Infinity], /* count */
+    /* Cancelled operations: electives are cancelled for want of a bed (kCancOcc)
+       or for want of a theatre team (kCancVac, on the pre-clamp vacancy anchor).
+       This is the one cross-tab driver and the reason _deriveAnchors() exists.
+       kCancVac is large because the vacancy rate is a narrow-range figure: at a
+       coefficient that merely looks proportionate, the theatre-team term supplies
+       about a seventh of the variance and cancelled operations stays a relabelled
+       occupancy (0.71 correlated with it). At 2.10 the two terms are comparable
+       and the correlation is 0.25. */
+    cancBase:  8,  kCancOcc: 0.75, kCancVac: 2.10, cancClamp: [0, Infinity] /* count */
   },
+  /* ---------- Workforce (X9) ----------
+     Vacancy, turnover and sickness were all `base + k x (morale - start)`, i.e.
+     one variable in three costumes: their pairwise correlations were exactly
+     1.0000 - identical up to an affine transform - and vacancy and turnover could
+     reach only 2 of their 4 authored bands. Each keeps morale as its primary
+     driver and gains one DISTINCT second driver, and the primary coefficients
+     roughly double, because the old ones traversed only 26-35% of the clamps that
+     were authored for them. */
   workforce: {
-    vacBase:   9,   kVac:  0.12, vacClamp:  [2, 20],   /* % */
-    turnBase: 13,   kTurn: 0.14, turnClamp: [5, 22],   /* % */
-    sickBase:  4.5, kSick: 0.06, sickClamp: [2, 9],    /* % */
+    /* Layer-1 anchor. A trust in deficit holds posts vacant, so vacancy control is
+       a financial lever as much as a workforce outcome - and kVacBudget is sized so
+       that it genuinely is one: budget swings over a ~9 point range against
+       morale's ~40, so a coefficient in proportion to the two rates would leave
+       the financial term contributing a fifth of the movement and vacancy still
+       collinear with turnover. As set, the two terms contribute comparable
+       variance. Read it as: a percentage point of vacancy held per £1m of
+       deficit. */
+    vacBase:   9,   kVac:  0.30, kVacBudget: 1.00, vacClamp:  [2, 20],   /* % */
+    /* Staff leave a trust whose public standing is poor, and it recruits more
+       slowly against the same reputation (kTurnRep). */
+    turnBase: 13,   kTurn: 0.22, kTurnRep: 0.22, turnClamp:  [5, 22],   /* % */
+    /* Sustained escalation-level occupancy drives absence: this is the one
+       workforce figure that should respond to operational pressure (kSickOcc,
+       on the pre-clamp occupancy anchor). */
+    sickBase:  4.5, kSick: 0.11, kSickOcc: 0.14, sickClamp: [2, 9],    /* % */
     /* Bank & agency spend is NOT derived here. It is an I&E expenditure line
        with a plan and a variance, so it is derived once under `finance`. A
        second copy of the same coefficients was kept in step by comment alone,
        which is how Finance and Workforce end up reporting different agency
        spend for the same quarter two clicks apart. */
-    survBase:  6.5, kSurv: 0.04, kRep: 0.03, survClamp: [0, 10] /* index 0..10 */
+    /* The Staff Survey's best-known question is whether staff would be happy for
+       a friend or relative to be treated at the trust, which tracks safety at
+       least as much as morale - so kSurvSafety is the dominant second term (safety
+       moves over a far wider range than reputation, so 0.055 against kRep's 0.012
+       is a much larger share of the figure than the two numbers suggest).
+       kRep is retuned DOWN but must stay strictly positive: reputation moving the
+       survey is authored behaviour and is asserted in the test suite. Most of what
+       kRep used to do was making the survey a second view of turnover. */
+    survBase:  6.5, kSurv: 0.09, kSurvSafety: 0.055, kRep: 0.012, survClamp: [0, 10] /* index 0..10 */
   },
   quality: {
     incBase:    6,   kInc2:  0.50, incClamp:  [0, Infinity], /* moderate-harm / month */
@@ -208,12 +283,64 @@ var REPORTING_BENCHMARKS = {
 };
 
 /* 'quarterId:optionId' wins over 'quarterId', which wins over the derived
-   value. Longest (most specific) key wins. Keys use real game IDs: Q2 is the
-   Capacity Strain quarter, where delayed transfers of care are the headline
-   figure, and funding the discharge partnership pulls that figure down further. */
-var REPORTING_OVERRIDES = {
-  'Q2':                      { operational: { dtocBeds: 41 } },
-  'Q2:discharge_partnership': { operational: { dtocBeds: 38 } }
+   value. Longest (most specific) key wins. Keys use real game IDs.
+
+   Nothing is authored here at present, and that is deliberate. Q2 used to author
+   `dtocBeds: 41` with `Q2:discharge_partnership` authoring 38, which is the
+   collinearity defect in miniature: at Q2 the headline figure read 41 whatever
+   the board did, unless it did one specific thing, and then it read 38 - a
+   figure that cannot respond to a decision teaches the group that the decision
+   did not matter. The same authorial intent (Q2 is the quarter when discharge
+   pressure lands) is now expressed as an ADDITIVE term in REPORTING_EXOGENOUS,
+   which shifts the figure without freezing it.
+
+   The mechanism stays: a hard override is the right tool for a one-off authored
+   fact that the model has no business deriving. Use it for that, not to pin a
+   figure the player is meant to be able to move. */
+var REPORTING_OVERRIDES = {};
+
+/* Exogenous pressure the trust does not control, ADDED to the derived figure,
+   keyed by the quarter whose OUTCOME is being reported (ctx.quarterId on the
+   report snapshot). Delayed transfers depend far more on community and
+   social-care capacity than on anything the board decided, and modelling them as
+   a pure function of the waiting index made them the fourth identical view of
+   one number.
+
+   KEYED BY QUARTER ONLY, never by 'quarter:option'. That is the whole point: an
+   option-keyed exogenous term would be the board's own decision wearing a
+   disguise. If a figure should respond to the decision, give it a driver, not an
+   entry here.
+
+   ctx.quarterId on a report snapshot is the quarter whose decision was
+   committed, so Q2's pressure lands in the Q2 OUTCOME - which is what the Q3
+   pack's pages 1-2 report, the same pack whose page 3 carries the Q2 bridge
+   line. A missing key, and a null ctx, both resolve to 0, so the opening board
+   position still derives to base exactly.
+
+   Each value is the pressure sitting on the trust DURING that quarter, not a
+   running total: Q3's is small because Q3's external event is a reputational one,
+   not a discharge one.
+
+   These values are authored to match the `bridge` prose already written on each
+   quarter in quarters-data.js - if you change one, change the other:
+     Q2 "Regional discharge pathways tightened after the last board, so beds now
+         clear more slowly than they did earlier in the year."
+     Q3 "A regional outlet began reporting on the trust after the last board..."
+         (a reputational quarter, so only a small residual discharge drag)
+     Q4 "A cold snap was forecast after the last board, so winter demand now sits
+         on top of the position above."
+
+   Q4 is large, and deliberately so. Delayed transfers are authored against a
+   [0, 80] bed clamp - the widest clamp in the model - and with the waiting link
+   weakened they cannot traverse it on the board's decisions alone: measured over
+   all 1024 quarter-close snapshots, the winter term is what takes the figure from
+   45% of its clamp to 57%. It is additive, so the board can still move the figure
+   in winter; that is the difference between this and the hard Q2 override it
+   replaced. */
+var REPORTING_EXOGENOUS = {
+  'Q2': { operational: { dtocBeds:  9 } },
+  'Q3': { operational: { dtocBeds:  3 } },
+  'Q4': { operational: { dtocBeds: 26 } }
 };
 
 /* Short authored commentary keyed off the source metric's current band tone,
@@ -341,6 +468,19 @@ function _resolveOverride(section, field, ctx){
 function _field(section, field, derived, ctx){
   var ov = _resolveOverride(section, field, ctx);
   return ov === undefined ? derived : ov;
+}
+
+/* The authored exogenous ADDEND for a field, from REPORTING_EXOGENOUS. Unlike an
+   override this does not replace the derived value, it shifts it, so the figure
+   stays responsive to the board's decision. Quarter-keyed only - see the table.
+   -> number; 0 for a null ctx, a quarter with no entry, or a field with none, so
+   the opening board position is unshifted. */
+function _exogenous(section, field, ctx){
+  var q, v;
+  if(!ctx || ctx.quarterId == null) return 0;
+  q = REPORTING_EXOGENOUS[ctx.quarterId];
+  v = q && q[section] ? q[section][field] : undefined;
+  return typeof v === 'number' ? v : 0;
 }
 
 /* Commentary for a metric at a value, from its band tone. */
@@ -475,24 +615,101 @@ function deriveIncomeExpenditure(stats, ctx){
            totalIncome: income, totalExpenditure: spend };
 }
 
-/* Operations. All five figures rise with `waiting` (worsening), handover also
-   rises as `safety` falls.
+/* ---------- THE LAYERING RULE - read this before adding a derived figure ----
+   Layer-1 anchor figures. Both deriveOperational() and deriveWorkforce() need
+   these, and each depends only on the six source metrics, so this helper can be
+   called from either without recursion. THIS IS THE ONLY LAYER-1 FUNCTION.
+
+   The rule, stated as a rule:
+
+     LAYER 1 (this function) reads SOURCE METRICS ONLY.
+       occupancy   <- waiting
+       vacancyRate <- morale, budget
+     LAYER 2 (every other derived figure) may read source metrics and the layer-1
+       anchors returned from here, and may NEVER read another layer-2 figure.
+     deriveOperational() must never call deriveWorkforce(), and the reverse.
+
+   The rule exists because the model genuinely wants cross-tab drivers -
+   cancelledOps <- occupancy + vacancyRate, sickness <- morale + occupancy - and
+   taken literally that is deriveOperational() calling deriveWorkforce() calling
+   deriveOperational(), i.e. a stack overflow the first time the pack is opened.
+   If a new figure needs another figure as a driver it is a layer-2 figure and it
+   reads the anchor from here. Do not promote a second function to layer 1, and do
+   not cross-call the two derive functions.
+
+   TWO DETAILS THAT ARE LOAD-BEARING:
+
+   (a) The anchors resolve through _field() HERE, before any dependant reads them,
+       so an authored override on `occupancy` reaches losPct, ambulanceHandover
+       and cancelledOps too. Without that, an author can put the pack into a state
+       where the occupancy row says 97% while length of stay is derived as though
+       it were 91%.
+
+   (b) Dependants read the PRE-CLAMP anchor (`occupancyRaw` / `vacancyRateRaw`).
+       Occupancy saturates its [82, 99] clamp on a material share of legal paths -
+       it is the one figure at 100% clamp utilisation, by design. If the dependants
+       read the clamped value, then on every high-pressure path they would all
+       flatten at the same instant, which is exactly the lockstep this layer exists
+       to remove, rebuilt at the top of the range. The clamped value is for
+       display; the raw value is what the rest of the model is made of.
+
+   -> {occupancy, occupancyRaw, vacancyRate, vacancyRateRaw} */
+function _deriveAnchors(stats, ctx){
+  var o = REPORTING_COEFFS.operational;
+  var w = REPORTING_COEFFS.workforce;
+  var waitingUp  = stats.waiting - _start('waiting');
+  var moraleDown = _start('morale') - stats.morale;
+  /* budget's authored start is 0, so this is just -budget. Written as a delta
+     from the start anyway: the opening-position invariant depends on every driver
+     term being zero-centred at the start, not on budget's start staying 0. */
+  var budgetDown = _start('budget') - stats.budget;
+
+  /* An override sets the raw value, so it reaches both the display figure and
+     every dependant. */
+  var occRaw = _field('operational', 'occupancy', o.occBase + o.kOcc * waitingUp, ctx);
+  var vacRaw = _field('workforce', 'vacancyRate',
+    w.vacBase + w.kVac * moraleDown + w.kVacBudget * budgetDown, ctx);
+
+  return {
+    occupancy:      _clamp(occRaw, o.occClamp[0], o.occClamp[1]),
+    occupancyRaw:   occRaw,
+    vacancyRate:    _clamp(vacRaw, w.vacClamp[0], w.vacClamp[1]),
+    vacancyRateRaw: vacRaw
+  };
+}
+
+/* Operations. All five figures still worsen as pressure rises, but each now has
+   its own second driver so no two of them are the same number in different units:
+     occupancy         <- waiting                       (layer-1 anchor)
+     losPct            <- occupancy, morale
+     dtocBeds          <- waiting (weakly), budget, authored exogenous term
+     ambulanceHandover <- occupancy, safety
+     cancelledOps      <- occupancy, vacancyRate
    -> {occupancy, losPct, dtocBeds, ambulanceHandover, cancelledOps} */
 function deriveOperational(stats, ctx){
   var c = REPORTING_COEFFS.operational;
-  var w = stats.waiting - _start('waiting');
-  var s = _start('safety') - stats.safety;
+  var a = _deriveAnchors(stats, ctx);
+  var w          = stats.waiting - _start('waiting');
+  var occUp      = a.occupancyRaw - c.occBase;
+  var vacUp      = a.vacancyRateRaw - REPORTING_COEFFS.workforce.vacBase;
+  var moraleDown = _start('morale') - stats.morale;
+  var safetyDown = _start('safety') - stats.safety;
+  var budgetDown = _start('budget') - stats.budget;
   return {
-    occupancy:         _field('operational', 'occupancy',
-      _clamp(c.occBase + c.kOcc * w, c.occClamp[0], c.occClamp[1]), ctx),
+    occupancy:         a.occupancy,
     losPct:            _field('operational', 'losPct',
-      _clamp(c.losBase + c.kLos * w, c.losClamp[0], c.losClamp[1]), ctx),
+      _clamp(c.losBase + c.kLosOcc * occUp + c.kLosMor * moraleDown,
+             c.losClamp[0], c.losClamp[1]), ctx),
     dtocBeds:          _field('operational', 'dtocBeds',
-      _clamp(c.dtocBase + c.kDtoc * w, c.dtocClamp[0], c.dtocClamp[1]), ctx),
+      _clamp(c.dtocBase + c.kDtoc * w + c.kDtocBudget * budgetDown +
+             _exogenous('operational', 'dtocBeds', ctx),
+             c.dtocClamp[0], c.dtocClamp[1]), ctx),
     ambulanceHandover: _field('operational', 'ambulanceHandover',
-      _clamp(c.handBase + c.kHand * w + c.kHs * s, c.handClamp[0], c.handClamp[1]), ctx),
+      _clamp(c.handBase + c.kHandOcc * occUp + c.kHs * safetyDown,
+             c.handClamp[0], c.handClamp[1]), ctx),
     cancelledOps:      _field('operational', 'cancelledOps',
-      _clamp(c.cancBase + c.kCanc * w, c.cancClamp[0], c.cancClamp[1]), ctx)
+      _clamp(c.cancBase + c.kCancOcc * occUp + c.kCancVac * vacUp,
+             c.cancClamp[0], c.cancClamp[1]), ctx)
   };
 }
 
@@ -525,22 +742,32 @@ function getOccupancyGauge(stats, ctx){
   };
 }
 
-/* Workforce. Vacancy/turnover/sickness worsen as `morale` falls; the staff
-   survey improves with `morale` and `rep`. Bank & agency spend is a finance
-   figure and lives on the I&E, not here - see REPORTING_COEFFS.workforce.
+/* Workforce. All four still move with `morale` as their primary driver, but each
+   has a DISTINCT second driver, so no two of them share a driver set and the four
+   rows can disagree with one another:
+     vacancyRate <- morale, budget                      (layer-1 anchor)
+     turnover    <- morale, rep
+     sickness    <- morale, occupancy
+     surveyScore <- morale, safety, rep
+   Bank & agency spend is a finance figure and lives on the I&E, not here - see
+   REPORTING_COEFFS.workforce.
    -> {vacancyRate, turnover, sickness, surveyScore} */
 function deriveWorkforce(stats, ctx){
   var c = REPORTING_COEFFS.workforce;
-  var m = _start('morale') - stats.morale;
+  var a = _deriveAnchors(stats, ctx);
+  var m     = _start('morale') - stats.morale;
+  var occUp = a.occupancyRaw - REPORTING_COEFFS.operational.occBase;
   return {
-    vacancyRate:     _field('workforce', 'vacancyRate',
-      _clamp(c.vacBase + c.kVac * m, c.vacClamp[0], c.vacClamp[1]), ctx),
+    vacancyRate:     a.vacancyRate,
     turnover:        _field('workforce', 'turnover',
-      _clamp(c.turnBase + c.kTurn * m, c.turnClamp[0], c.turnClamp[1]), ctx),
+      _clamp(c.turnBase + c.kTurn * m + c.kTurnRep * (_start('rep') - stats.rep),
+             c.turnClamp[0], c.turnClamp[1]), ctx),
     sickness:        _field('workforce', 'sickness',
-      _clamp(c.sickBase + c.kSick * m, c.sickClamp[0], c.sickClamp[1]), ctx),
+      _clamp(c.sickBase + c.kSick * m + c.kSickOcc * occUp,
+             c.sickClamp[0], c.sickClamp[1]), ctx),
     surveyScore:     _field('workforce', 'surveyScore',
       _clamp(c.survBase + c.kSurv * (stats.morale - _start('morale')) +
+                          c.kSurvSafety * (stats.safety - _start('safety')) +
                           c.kRep * (stats.rep - _start('rep')),
              c.survClamp[0], c.survClamp[1]), ctx)
   };

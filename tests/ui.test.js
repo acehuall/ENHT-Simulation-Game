@@ -910,9 +910,14 @@ async function driveToYearEnd(page, roles) {
       const opBase = deriveOperational(base, null);
       const opWait = deriveOperational(waitingHi, null);
       const opSafety = deriveOperational(safetyLow, null);
+      const opMorale = deriveOperational(moraleLow, null);
+      const opBudget = deriveOperational(budgetLow, null);
       const wfBase = deriveWorkforce(base, null);
       const wfMorale = deriveWorkforce(moraleLow, null);
       const wfRep = deriveWorkforce(repLow, null);
+      const wfBudget = deriveWorkforce(budgetLow, null);
+      const wfWait = deriveWorkforce(waitingHi, null);
+      const wfSafety = deriveWorkforce(safetyLow, null);
       const qBase = deriveQuality(base, null);
       const qSafety = deriveQuality(safetyLow, null);
       const qSafetyVery = deriveQuality(safetyVeryLow, null);
@@ -936,6 +941,16 @@ async function driveToYearEnd(page, roles) {
         vacancyUp: wfMorale.vacancyRate > wfBase.vacancyRate,
         turnoverUp: wfMorale.turnover > wfBase.turnover,
         sicknessUp: wfMorale.sickness > wfBase.sickness,
+        /* BPS-001 X9/X10: each figure's DISTINCT second driver. These are the
+           assertions that would go quiet again if someone re-collapsed the model
+           onto one source metric per tab. */
+        losUpOnMorale: opMorale.losPct > opBase.losPct,
+        dtocUpOnBudget: opBudget.dtocBeds > opBase.dtocBeds,
+        cancelledUpOnMorale: opMorale.cancelledOps > opBase.cancelledOps,
+        vacancyUpOnBudget: wfBudget.vacancyRate > wfBase.vacancyRate,
+        turnoverUpOnRep: wfRep.turnover > wfBase.turnover,
+        sicknessUpOnWaiting: wfWait.sickness > wfBase.sickness,
+        surveyDownOnSafety: wfSafety.surveyScore < wfBase.surveyScore,
         /* Bank & agency is derived ONCE, on the finance I&E line - the duplicate
            workforce copy of the same coefficients is gone. Re-pointed here rather
            than dropped so the morale -> agency behaviour stays covered. */
@@ -951,17 +966,97 @@ async function driveToYearEnd(page, roles) {
         fftDown: qPatsat.fftScore < qBase.fftScore
       };
 
-      /* 7.5 overrides - specificity, null ctx, and an authored 0, using real
-         game ids. Q2 authors dtocBeds=41; Q2:discharge_partnership authors 38. */
+      /* 7.5 overrides - specificity, null ctx, and an authored 0.
+         REPORTING_OVERRIDES used to author 'Q2' -> dtocBeds 41 and
+         'Q2:discharge_partnership' -> 38, and this block read those two literals.
+         BPS-001 X10 retired them: a figure that reads 41 whatever the board did,
+         unless it did one specific thing, is the collinearity defect in miniature.
+         The MECHANISM is what is under test and is still fully covered - the block
+         now installs its own synthetic entries and removes them again, exactly the
+         pattern it already used for the authored-zero case. Specificity, null ctx
+         and authored-zero coverage are all unchanged. */
       const ovStats = initialMetricStats();
-      REPORTING_OVERRIDES['Q3'] = { operational: { dtocBeds: 0 } };
+      const nullCtxDtoc = deriveOperational(ovStats, null).dtocBeds;
+      REPORTING_OVERRIDES['__OV_Q__'] = { operational: { dtocBeds: 41 } };
+      REPORTING_OVERRIDES['__OV_Q__:pick_me'] = { operational: { dtocBeds: 38 } };
+      REPORTING_OVERRIDES['__OV_ZERO__'] = { operational: { dtocBeds: 0 } };
       const overrides = {
-        quarterOnly: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'open_escalation_ward' }).dtocBeds,
-        quarterOption: deriveOperational(ovStats, { quarterId: 'Q2', optionId: 'discharge_partnership' }).dtocBeds,
-        nullCtx: deriveOperational(ovStats, null).dtocBeds,
-        authoredZero: deriveOperational(ovStats, { quarterId: 'Q3' }).dtocBeds
+        quarterOnly: deriveOperational(ovStats, { quarterId: '__OV_Q__', optionId: 'other' }).dtocBeds,
+        quarterOption: deriveOperational(ovStats, { quarterId: '__OV_Q__', optionId: 'pick_me' }).dtocBeds,
+        nullCtx: nullCtxDtoc,
+        authoredZero: deriveOperational(ovStats, { quarterId: '__OV_ZERO__' }).dtocBeds
       };
-      delete REPORTING_OVERRIDES['Q3'];
+      delete REPORTING_OVERRIDES['__OV_Q__'];
+      delete REPORTING_OVERRIDES['__OV_Q__:pick_me'];
+      delete REPORTING_OVERRIDES['__OV_ZERO__'];
+
+      /* 7.5b the retired overrides are really gone, and what replaced them leaves
+         the figure responsive: at Q2 the four options must produce four different
+         delayed-transfer figures on top of the authored exogenous term. */
+      const q2Dtoc = QUARTERS[1].options.map(o =>
+        deriveOperational(applyMetricEffects(initialMetricStats(), o.effects),
+                          { quarterId: 'Q2', optionId: o.id }).dtocBeds);
+      const exogenous = {
+        noAuthoredDtocOverride: !Object.keys(REPORTING_OVERRIDES).some(k => {
+          const e = REPORTING_OVERRIDES[k];
+          return e.operational && e.operational.hasOwnProperty('dtocBeds');
+        }),
+        q2Distinct: new Set(q2Dtoc.map(v => v.toFixed(2))).size,
+        /* the exogenous term is keyed by quarter and additive, so the same stats
+           report a higher figure in winter than in the opening quarter */
+        opening: deriveOperational(ovStats, { quarterId: 'Q1', optionId: 'x' }).dtocBeds,
+        winter: deriveOperational(ovStats, { quarterId: 'Q4', optionId: 'x' }).dtocBeds,
+        nullIsBase: deriveOperational(ovStats, null).dtocBeds === REPORTING_COEFFS.operational.dtocBase,
+        /* keyed by quarter ONLY: an option key must not add a second helping */
+        quarterOnlyKeyed: deriveOperational(ovStats, { quarterId: 'Q4', optionId: 'defer_capital' }).dtocBeds ===
+                          deriveOperational(ovStats, { quarterId: 'Q4' }).dtocBeds
+      };
+
+      /* 7.9 the two-layer DAG (BPS-001 X9/X10 §4).
+         (a) An authored override on the `occupancy` anchor must reach every
+             layer-2 figure that reads it, so the pack can never show 97% occupancy
+             beside a length of stay derived as though it were 91%. dtocBeds does
+             NOT read occupancy, so it must NOT move - that negative is what proves
+             the anchor is being read rather than the whole tab being nudged.
+         (b) The same for the `vacancyRate` anchor reaching cancelledOps, which is
+             the one cross-tab driver.
+         (c) deriveOperational() and deriveWorkforce() must return the same values
+             whichever order they are called in, and must not recurse. A cycle
+             overflows the stack rather than returning a wrong number, so simply
+             completing is most of the assertion. */
+      REPORTING_OVERRIDES['__ANCHOR_OCC__'] = { operational: { occupancy: 97 } };
+      const occAnchorOp = deriveOperational(base, { quarterId: '__ANCHOR_OCC__' });
+      const occAnchorWf = deriveWorkforce(base, { quarterId: '__ANCHOR_OCC__' });
+      delete REPORTING_OVERRIDES['__ANCHOR_OCC__'];
+      REPORTING_OVERRIDES['__ANCHOR_VAC__'] = { workforce: { vacancyRate: 16 } };
+      const vacAnchorOp = deriveOperational(base, { quarterId: '__ANCHOR_VAC__' });
+      const vacAnchorWf = deriveWorkforce(base, { quarterId: '__ANCHOR_VAC__' });
+      delete REPORTING_OVERRIDES['__ANCHOR_VAC__'];
+
+      const dagStats = withD({ waiting: 82, morale: 44, budget: -3, safety: 50, rep: 45 });
+      let dagCompleted = true, wfFirstWf = null, wfFirstOp = null, opFirstOp = null, opFirstWf = null;
+      try {
+        wfFirstWf = deriveWorkforce(dagStats, null);
+        wfFirstOp = deriveOperational(dagStats, null);
+        opFirstOp = deriveOperational(dagStats, null);
+        opFirstWf = deriveWorkforce(dagStats, null);
+      } catch (e) { dagCompleted = false; }
+
+      const dag = {
+        occAnchorValue: occAnchorOp.occupancy,
+        losMoved: occAnchorOp.losPct > opBase.losPct,
+        handoverMoved: occAnchorOp.ambulanceHandover > opBase.ambulanceHandover,
+        cancelledMoved: occAnchorOp.cancelledOps > opBase.cancelledOps,
+        sicknessMoved: occAnchorWf.sickness > wfBase.sickness,
+        dtocUnmoved: occAnchorOp.dtocBeds === opBase.dtocBeds,
+        vacAnchorValue: vacAnchorWf.vacancyRate,
+        vacReachesCancelled: vacAnchorOp.cancelledOps > opBase.cancelledOps,
+        vacLeavesLosAlone: vacAnchorOp.losPct === opBase.losPct,
+        completed: dagCompleted,
+        orderIndependent: dagCompleted &&
+          JSON.stringify(wfFirstOp) === JSON.stringify(opFirstOp) &&
+          JSON.stringify(wfFirstWf) === JSON.stringify(opFirstWf)
+      };
 
       /* 7.6 history - empty on a fresh state, one entry per committed decision
          in round order. */
@@ -987,7 +1082,8 @@ async function driveToYearEnd(page, roles) {
       let unknownSection = 'threw';
       try { unknownSection = getReportSection('nope', initialMetricStats(), null); } catch (e) { /* leaves 'threw' */ }
 
-      return { maxErr, maxErrOverride, deterministic, noThrow, direction, overrides, history, unknownSection };
+      return { maxErr, maxErrOverride, deterministic, noThrow, direction, overrides,
+               exogenous, dag, history, unknownSection };
     });
 
     ok(s.maxErr < 1e-9, 'reporting: I&E surplus reconciles to budget across the range');
@@ -1018,10 +1114,40 @@ async function driveToYearEnd(page, roles) {
     ok(s.direction.harmFreeDown, 'reporting: lowering safety decreases harm-free care');
     ok(s.direction.complaintsUp, 'reporting: lowering patient satisfaction increases complaints');
     ok(s.direction.fftDown, 'reporting: lowering patient satisfaction decreases FFT recommend');
+    /* BPS-001 X9/X10 - the distinct second driver on each figure */
+    ok(s.direction.losUpOnMorale, 'reporting: lowering morale increases length of stay');
+    ok(s.direction.dtocUpOnBudget, 'reporting: lowering budget increases delayed transfers');
+    ok(s.direction.cancelledUpOnMorale, 'reporting: lowering morale increases cancelled ops (via vacancy)');
+    ok(s.direction.vacancyUpOnBudget, 'reporting: lowering budget increases vacancy rate');
+    ok(s.direction.turnoverUpOnRep, 'reporting: lowering reputation increases turnover');
+    ok(s.direction.sicknessUpOnWaiting, 'reporting: raising waiting increases sickness absence (via occupancy)');
+    ok(s.direction.surveyDownOnSafety, 'reporting: lowering safety decreases the staff survey score');
     eq(s.overrides.quarterOnly, 41, 'reporting: quarter override applies');
     eq(s.overrides.quarterOption, 38, 'reporting: quarter:option override beats quarter override');
     eq(s.overrides.nullCtx, 35, 'reporting: null ctx applies no override');
     eq(s.overrides.authoredZero, 0, 'reporting: an authored 0 override is honoured');
+    /* the exogenous DTOC term that replaced the two hard Q2 overrides */
+    ok(s.exogenous.noAuthoredDtocOverride,
+       'exogenous: no authored override pins delayed transfers any more');
+    eq(s.exogenous.q2Distinct, 4,
+       'exogenous: all four Q2 options produce a different delayed-transfer figure');
+    ok(s.exogenous.winter > s.exogenous.opening,
+       'exogenous: the authored winter term lifts delayed transfers above the opening quarter (' +
+       s.exogenous.opening.toFixed(1) + ' -> ' + s.exogenous.winter.toFixed(1) + ')');
+    ok(s.exogenous.nullIsBase, 'exogenous: a null ctx adds no exogenous pressure, so the figure is its base');
+    ok(s.exogenous.quarterOnlyKeyed, 'exogenous: the term is keyed by quarter only, never by quarter:option');
+    /* the two-layer DAG */
+    eq(s.dag.occAnchorValue, 97, 'DAG: an authored override on the occupancy anchor is what the row reports');
+    ok(s.dag.losMoved, 'DAG: an occupancy override reaches length of stay');
+    ok(s.dag.handoverMoved, 'DAG: an occupancy override reaches ambulance handovers');
+    ok(s.dag.cancelledMoved, 'DAG: an occupancy override reaches cancelled operations');
+    ok(s.dag.sicknessMoved, 'DAG: an occupancy override reaches sickness absence across the tab boundary');
+    ok(s.dag.dtocUnmoved, 'DAG: an occupancy override leaves delayed transfers alone (it is not a dependant)');
+    eq(s.dag.vacAnchorValue, 16, 'DAG: an authored override on the vacancy anchor is what the row reports');
+    ok(s.dag.vacReachesCancelled, 'DAG: a vacancy override reaches cancelled operations across the tab boundary');
+    ok(s.dag.vacLeavesLosAlone, 'DAG: a vacancy override leaves length of stay alone');
+    ok(s.dag.completed, 'DAG: neither derive function recurses into the other');
+    ok(s.dag.orderIndependent, 'DAG: the two derive functions give the same values in either call order');
     eq(s.history.empty, 0, 'reporting: history is empty on a fresh state');
     eq(s.history.length, 2, 'reporting: history has one entry per committed decision');
     eq(JSON.stringify(s.history.rounds), JSON.stringify([1, 2]), 'reporting: history is in round order');
@@ -3650,6 +3776,217 @@ async function driveToYearEnd(page, roles) {
     ok(s.rendered.crossed.indexOf('&pound;') < 0,
        'threshold: the currency entity is resolved, not printed literally');
     ok(page._errors.length === 0, 'threshold: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BOARD PACK COMMIT 4: MODEL SENSITIVITY ----------------
+     BPS-001 X9 (workforce insensitivity) and X10 (operations collinearity),
+     measured rather than argued. Walks all 256 legal decision paths and records
+     every derived Operations and Workforce figure at all four quarter closes
+     (1024 snapshots), then checks four things:
+
+       1. BAND REACHABILITY - X3 gave every figure its own bands; half of them
+          used to be dead. Before this commit vacancy and turnover reached 2 of 4,
+          and length of stay, delayed transfers, sickness and the staff survey
+          could not reach their fourth band at all.
+       2. CLAMP UTILISATION AND SATURATION - the clamps record a design intent the
+          old coefficients never delivered (vacancy traversed 27% of its authored
+          range, the staff survey 26%).
+       3. PAIRWISE CORRELATION within each tab. 0.90 is a deliberate, statable
+          line: above it, two rows are telling the board the same thing in
+          different units, which is the defect. Vacancy, turnover and sickness used
+          to correlate at exactly 1.0000 - identical up to an affine transform.
+       4. Q1 SPREAD - the sharpest test, because it is the first pack a player ever
+          opens. Four fundamentally different decisions used to produce a Workforce
+          tab that was the same colour and nearly the same numbers in all four
+          worlds.
+
+     Correlation is reported on BOTH the 256 year-end positions (the measure
+     BPS-001 §1.1 quotes, so the before/after is comparable) and all 1024
+     snapshots, and the assertion takes the worse of the two. The calibration
+     numbers are printed even when everything passes: that is the only reason this
+     tuning will still be reviewable in a year. */
+  console.log('\nBPS-001 X9/X10 model sensitivity (all 256 paths, 4 quarter closes):');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const OPS = ['occupancy', 'losPct', 'dtocBeds', 'ambulanceHandover', 'cancelledOps'];
+      const WF = ['vacancyRate', 'turnover', 'sickness', 'surveyScore'];
+      const ALL = OPS.concat(WF);
+      const nsOf = f => (OPS.indexOf(f) >= 0 ? 'operational' : 'workforce');
+      const CLAMP = {
+        occupancy: 'occClamp', losPct: 'losClamp', dtocBeds: 'dtocClamp',
+        ambulanceHandover: 'handClamp', cancelledOps: 'cancClamp',
+        vacancyRate: 'vacClamp', turnover: 'turnClamp', sickness: 'sickClamp',
+        surveyScore: 'survClamp'
+      };
+      const BASE = {
+        occupancy: 'occBase', losPct: 'losBase', dtocBeds: 'dtocBase',
+        ambulanceHandover: 'handBase', cancelledOps: 'cancBase', vacancyRate: 'vacBase',
+        turnover: 'turnBase', sickness: 'sickBase', surveyScore: 'survBase'
+      };
+      const clampOf = f => REPORTING_COEFFS[nsOf(f)][CLAMP[f]];
+      const bandsOf = f => REPORTING_BENCHMARKS[nsOf(f)][f + 'Bands'];
+      const figuresAt = (stats, ctx) =>
+        Object.assign({}, deriveOperational(stats, ctx), deriveWorkforce(stats, ctx));
+
+      /* Same rec() walk over QUARTERS as the phase 5 reachability block. `snaps`
+         holds 256 x 4 snapshots so each full path is weighted equally; `yearEnd`
+         is the 256 Q4 closes; `q1` the four distinct Q1 closes. */
+      const snaps = [], yearEnd = [], q1 = [];
+      let n = 0;
+      function rec(qi, stats, trail) {
+        if (qi === QUARTERS.length) {
+          n++;
+          trail.forEach(t => snaps.push(t));
+          yearEnd.push(trail[trail.length - 1]);
+          return;
+        }
+        const opts = QUARTERS[qi].options;
+        for (let o = 0; o < opts.length; o++) {
+          const next = applyMetricEffects(stats, opts[o].effects);
+          const snap = figuresAt(next, { quarterId: QUARTERS[qi].id, optionId: opts[o].id });
+          if (qi === 0) q1.push(snap);
+          rec(qi + 1, next, trail.concat([snap]));
+        }
+      }
+      rec(0, initialMetricStats(), []);
+
+      function pearson(rows, a, b) {
+        const N = rows.length;
+        let ma = 0, mb = 0;
+        for (let i = 0; i < N; i++) { ma += rows[i][a]; mb += rows[i][b]; }
+        ma /= N; mb /= N;
+        let sab = 0, saa = 0, sbb = 0;
+        for (let i = 0; i < N; i++) {
+          const da = rows[i][a] - ma, db = rows[i][b] - mb;
+          sab += da * db; saa += da * da; sbb += db * db;
+        }
+        return (saa && sbb) ? sab / Math.sqrt(saa * sbb) : 0;
+      }
+
+      const reach = {}, reachTones = {}, used = {}, satLo = {}, satHi = {}, range = {};
+      ALL.forEach(f => {
+        const c = clampOf(f);
+        let lo = Infinity, hi = -Infinity, sl = 0, sh = 0;
+        const tones = {};
+        for (let i = 0; i < snaps.length; i++) {
+          const v = snaps[i][f];
+          if (v < lo) lo = v;
+          if (v > hi) hi = v;
+          if (Math.abs(v - c[0]) < 1e-9) sl++;
+          if (isFinite(c[1]) && Math.abs(v - c[1]) < 1e-9) sh++;
+          tones[getBenchmarkTone(bandsOf(f), v)] = (tones[getBenchmarkTone(bandsOf(f), v)] || 0) + 1;
+        }
+        reach[f] = Object.keys(tones).length;
+        reachTones[f] = tones;
+        range[f] = [lo, hi];
+        used[f] = isFinite(c[1]) ? (hi - lo) / (c[1] - c[0]) : null;
+        satLo[f] = sl / snaps.length;
+        satHi[f] = isFinite(c[1]) ? sh / snaps.length : 0;
+      });
+
+      /* worst pair within each tab, on the worse of the two snapshot sets */
+      const corr = {}, worst = {};
+      [['ops', OPS], ['wf', WF]].forEach(([tag, g]) => {
+        let mx = 0, pair = '';
+        for (let i = 0; i < g.length; i++) {
+          for (let j = i + 1; j < g.length; j++) {
+            const cy = Math.abs(pearson(yearEnd, g[i], g[j]));
+            const ca = Math.abs(pearson(snaps, g[i], g[j]));
+            corr[g[i] + '/' + g[j]] = { yearEnd: +cy.toFixed(4), all: +ca.toFixed(4) };
+            if (Math.max(cy, ca) > mx) { mx = Math.max(cy, ca); pair = g[i] + '/' + g[j]; }
+          }
+        }
+        worst[tag] = { value: mx, pair };
+      });
+
+      const q1Spread = {}, q1Tones = {}, q1Values = {}, q1Distinct1dp = {};
+      ALL.forEach(f => {
+        const vs = q1.map(x => x[f]);
+        q1Values[f] = vs;
+        q1Spread[f] = Math.max.apply(null, vs) - Math.min.apply(null, vs);
+        q1Tones[f] = Object.keys(vs.reduce((a, v) => (a[getBenchmarkTone(bandsOf(f), v)] = 1, a), {})).length;
+        q1Distinct1dp[f] = Object.keys(vs.reduce((a, v) => (a[v.toFixed(1)] = 1, a), {})).length;
+      });
+
+      /* Invariant: at the opening board position with ctx = null, every derived
+         figure equals its authored base EXACTLY. Every driver term is a delta from
+         a source metric's authored start, so this is what guarantees the Q1 pack
+         is unshifted and that occupancy still lands on 92 = occupancyNorm. */
+      const opening = figuresAt(initialMetricStats(), null);
+      const openingExact = {};
+      ALL.forEach(f => { openingExact[f] = opening[f] === REPORTING_COEFFS[nsOf(f)][BASE[f]]; });
+
+      return { n, snapshots: snaps.length, reach, reachTones, range, used, satLo, satHi,
+               corr, worst, q1Spread, q1Tones, q1Values, q1Distinct1dp, openingExact,
+               losFloor: REPORTING_COEFFS.operational.losClamp[0] };
+    });
+
+    /* ---- calibration, printed pass or fail ---- */
+    console.log('    paths: ' + s.n + '   snapshots (256 x 4): ' + s.snapshots);
+    console.log('    band reachability / clamp utilisation:');
+    Object.keys(s.reach).forEach(f => {
+      const u = s.used[f] == null ? 'open' : (s.used[f] * 100).toFixed(0) + '%';
+      console.log('      ' + f.padEnd(18) + s.reach[f] + ' bands  ' +
+        s.range[f][0].toFixed(2) + '..' + s.range[f][1].toFixed(2) +
+        '  clamp used ' + u +
+        '  saturation lo ' + (s.satLo[f] * 100).toFixed(1) + '% hi ' + (s.satHi[f] * 100).toFixed(1) + '%' +
+        '  ' + JSON.stringify(s.reachTones[f]));
+    });
+    console.log('    pairwise correlation (year-end / all snapshots):');
+    Object.keys(s.corr).forEach(k =>
+      console.log('      ' + k.padEnd(38) + s.corr[k].yearEnd.toFixed(4) + ' / ' + s.corr[k].all.toFixed(4)));
+    console.log('    worst operations pair: ' + s.worst.ops.value.toFixed(4) + ' (' + s.worst.ops.pair + ')');
+    console.log('    worst workforce pair:  ' + s.worst.wf.value.toFixed(4) + ' (' + s.worst.wf.pair + ')');
+    console.log('    Q1 spread across the four options (the first pack a player opens):');
+    Object.keys(s.q1Spread).forEach(f =>
+      console.log('      ' + f.padEnd(18) + s.q1Values[f].map(v => v.toFixed(2)).join('  ') +
+        '   spread ' + s.q1Spread[f].toFixed(2) +
+        '   distinct at 1dp ' + s.q1Distinct1dp[f] + '/4   tones ' + s.q1Tones[f]));
+
+    eq(s.n, 256, 'sensitivity: every one of the 256 legal decision paths is enumerated');
+    eq(s.snapshots, 1024, 'sensitivity: every path contributes all four of its quarter closes');
+
+    /* 1. at least three of four authored bands per figure (all four is better) */
+    Object.keys(s.reach).forEach(f =>
+      ok(s.reach[f] >= 3, 'sensitivity: ' + f + ' reaches at least 3 of its 4 authored bands (' + s.reach[f] + ')'));
+
+    /* 2. no pair of figures within a tab moves in lockstep */
+    ok(s.worst.ops.value < 0.90, 'sensitivity: no two operations figures move in lockstep (worst ' +
+      s.worst.ops.value.toFixed(4) + ', ' + s.worst.ops.pair + ')');
+    ok(s.worst.wf.value < 0.90, 'sensitivity: no two workforce figures move in lockstep (worst ' +
+      s.worst.wf.value.toFixed(4) + ', ' + s.worst.wf.pair + ')');
+
+    /* 3. the first pack a player opens can be told apart, row by row */
+    ['vacancyRate', 'turnover', 'sickness', 'surveyScore'].forEach(f =>
+      eq(s.q1Distinct1dp[f], 4,
+        'sensitivity: the four Q1 options produce four different ' + f + ' figures at 1 dp'));
+    ok(['vacancyRate', 'turnover', 'sickness', 'surveyScore'].filter(f => s.q1Tones[f] >= 2).length >= 2,
+      'sensitivity: at least two Workforce rows change tone across the four Q1 options');
+
+    /* 4/5. the clamps are traversed rather than recorded, and nothing sits on a
+       bound. The open-ended handover / cancelled-ops clamps are excluded (a 0 floor
+       there is a real best outcome, not saturation), and so is occupancy, which is
+       at 100% utilisation by design. */
+    ['losPct', 'dtocBeds', 'vacancyRate', 'turnover', 'sickness', 'surveyScore'].forEach(f => {
+      ok(s.used[f] >= 0.55, 'sensitivity: ' + f + ' traverses at least 55% of its authored clamp (' +
+        (s.used[f] * 100).toFixed(0) + '%)');
+      ok(s.satLo[f] <= 0.10, 'sensitivity: ' + f + ' does not sit on its clamp floor (' +
+        (s.satLo[f] * 100).toFixed(1) + '%)');
+      ok(s.satHi[f] <= 0.10, 'sensitivity: ' + f + ' does not sit on its clamp ceiling (' +
+        (s.satHi[f] * 100).toFixed(1) + '%)');
+    });
+    /* The one clamp BPS-001 permits moving, stated here so the change is visible
+       in the log rather than only in the diff. */
+    eq(s.losFloor, 85, 'sensitivity: the length of stay floor is 85 (lowered from 90, the one permitted clamp change)');
+
+    /* 6. the opening board position is unshifted */
+    Object.keys(s.openingExact).forEach(f =>
+      ok(s.openingExact[f], 'sensitivity: at the opening position ' + f + ' equals its authored base exactly'));
+
+    ok(page._errors.length === 0, 'sensitivity: no console/page errors');
     await page.close();
   }
 

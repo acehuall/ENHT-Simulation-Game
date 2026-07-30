@@ -455,6 +455,15 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   color:var(--fin-expenditure); border-left:4px solid var(--fin-expenditure);
   border-top:3px solid #141b30;
 }
+/* Block subtotals share the sub-head's styling so each block reads as bracketed
+   by a matching pair, but carry figures, so the numeric columns re-assert the
+   table's right alignment that .rep-fin-subhead td turns off for its labels.
+   Written at .rep-fin-subhead.rep-fin-subtotal specificity to outrank
+   .rep-fin-subhead.fin-expenditure above: that rule's heavy dark border-top is
+   the divider BETWEEN the two blocks, and inheriting it here would draw a second
+   one at the foot of the expenditure block, immediately above the net row's own. */
+.rep-fin-subhead.rep-fin-subtotal td{text-align:right; border-top:2px solid #9aa5bd;}
+.rep-fin-subhead.rep-fin-subtotal td:first-child{text-align:left;}
 .rep-fin-line.fin-income td:nth-child(2),.rep-fin-line.fin-income td:nth-child(3){color:var(--fin-income);}
 .rep-fin-line.fin-expenditure td:nth-child(2),.rep-fin-line.fin-expenditure td:nth-child(3){color:var(--fin-expenditure);}
 /* Net position: the figure the board acts on, so it dominates. */

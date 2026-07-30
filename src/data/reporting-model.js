@@ -27,13 +27,78 @@
    live from METRIC_DEFS via _start), so at the opening board position every
    derived figure sits exactly on its `base`. */
 var REPORTING_COEFFS = {
+  /* ---------- Finance (X11) ----------
+     THE PLAN-BALANCE INVARIANT. The bases are the plan (budgeted) figures and
+     they balance exactly:
+
+       income      95.0 + 2.5 + 10.5 + 0.0 = 108.0
+       expenditure 68.0 + 6.0 + 12.0 + 22.0 = 108.0
+
+     so at the opening board position every line derives to its own plan, every
+     variance is zero and the surplus is exactly 0. That is what makes the pack's
+     first page readable as "this is the plan, and nothing has happened yet". If
+     you re-pitch any base, re-pitch another to match; the suite asserts it.
+
+     WHY THERE ARE EIGHT LINES AND NOT FIVE. `Other operating income` used to be
+     the balancing plug: the single line with no narrative behind it absorbed
+     every other line's error. Worked through at budget -2, morale 48,
+     waiting 78 - an ordinary bad-but-not-catastrophic Q3 - the old table put
+     every derived line adverse and made the plug a +2.5 FAVOURABLE variance, the
+     largest single positive number on the page, favourable precisely BECAUSE
+     everything else had gone wrong. A board reading down the column found the
+     only good news sitting on the only line nobody could explain.
+     `Other operating income` is now derived like any other line, and the plug
+     moves to an explicit `Reserves & contingency drawdown` - see C.4 on
+     deriveIncomeExpenditure(). */
   finance: {
-    /* £m per quarter. Bases are the plan (budgeted) figures. */
-    clinicalIncomeBase: 95,  kInc: 0.15,   /* clinical income falls as waiting rises */
-    otherIncomeBase:    13,                 /* nominal plan for the balancing line */
-    payBase:            68,   kPay: 0.40, kMor: 0.05, /* pay rises as budget/morale fall */
-    agencyBase:          6,   kAgency: 0.12,          /* bank & agency rises as morale falls */
-    nonPayBase:         34,   kNonPay: 0.25           /* non-pay rises as budget falls */
+    /* £m per quarter. --- INCOME --- */
+    /* Clinical income falls as waiting rises: a gridlocked front door displaces
+       the elective work the tariff is earned on. */
+    clinicalIncomeBase: 95,   kInc: 0.15,
+    /* Private patients: small, and the only finance line driven by reputation.
+       Private work follows the trust's public standing more than its capacity,
+       and no other line reads `rep`, so this is the income block's third
+       independent driver. Kept deliberately small in scale - a swing of about
+       +/- 0.5 on a 2.5 plan - because a trust of this size does not fund itself
+       out of private work and a line that moved further would say it did. */
+    privateIncomeBase:   2.5, kPrivateRep: 0.02,
+    /* Other operating income - education, training and research income, no
+       longer the plug. Driven by SAFETY, which looks surprising for an income
+       line and is the most defensible driver available: placements and the
+       education tariff that comes with them are what a trust loses when its
+       safety record deteriorates, and trainees are withdrawn by the deanery, not
+       by the market. Reading `waiting` instead would have made it a second view
+       of clinical income; reading `morale` would have made it a second view of
+       agency spend. Safety drives no other finance line. */
+    otherIncomeBase:    10.5, kOtherSafety: 0.04,
+    /* The balancing plug's plan is 0: a trust does not BUDGET to raid its
+       reserves, which is exactly why any drawdown at all is a variance worth
+       colouring. No coefficient - it is not derived, it is solved for. */
+    drawdownBase:        0,
+    /* --- EXPENDITURE --- */
+    /* Pay rises as the financial position and morale fall. */
+    payBase:            68,   kPay: 0.40, kMor: 0.05,
+    /* Bank & agency rises as morale falls. */
+    agencyBase:          6,   kAgency: 0.12,
+    /* Non-pay was ONE line of 34 with a single kNonPay of 0.25. It is now split
+       into drugs (12) and clinical supplies (22), and the budget coefficients
+       are split in the same 12:22 proportion - 0.09 + 0.16 = 0.25 - so the
+       aggregate non-pay response to the budget is byte-unchanged and only its
+       presentation is finer.
+       A PROPORTIONAL SPLIT ALONE WOULD BE WORTHLESS: two lines driven by one
+       coefficient in fixed proportion are one line printed twice, which is the
+       X10 collinearity defect rebuilt inside the finance table. kDrugsActivity
+       is what stops it - the drugs bill follows ACTIVITY as well as the
+       financial position, so the two lines diverge whenever demand and the
+       control total move differently.
+       Activity is measured as `waiting`, NOT as the occupancy anchor, and that
+       is a deliberate refusal of the obvious choice. Occupancy is a percentage
+       whose denominator moves: `Q2:open_escalation_ward` opens 18 beds and so
+       LOWERS occupancy while the patients - and their drugs - are still there.
+       Pointing the drugs bill at occupancy would have opening a ward cut the
+       drugs spend, which is the wrong sign for the right-looking reason. */
+    drugsBase:          12,   kDrugsBudget: 0.09, kDrugsActivity: 0.03,
+    suppliesBase:       22,   kSuppliesBudget: 0.16
   },
   /* ---------- Operations (X10) ----------
      Every figure here used to be `base + k x (waiting - start)`, which made five
@@ -705,26 +770,70 @@ function _row(id, label, value, unit, sourceKey, sourceValue, namespace){
   };
 }
 
+/* The direction of good for an I&E line, given only its block. Every
+   conventional line follows it: income is better when there is more of it,
+   expenditure when there is less. Authored `goodWhen` overrides it, and exactly
+   one line needs to - see below.
+   -> 'up' | 'down' */
+function _defaultGoodWhen(kind){
+  return kind === 'income' ? 'up' : 'down';
+}
+
 /* One I&E line. `budget` is the plan (budgeted) figure, `actual` the derived
-   position, `variance` = actual - plan. tone reflects favourability: an
-   over-recovery of income or an underspend is `good`; the reverse is `warn`. */
-function _ieLine(id, label, plan, actual, kind){
+   position, `variance` = actual - plan.
+
+   `kind` IS GROUPING AND ARITHMETIC ONLY: which block the line renders in and
+   which side of the reconciliation it sits on. `goodWhen` IS DIRECTION OF GOOD,
+   and is what the tone and the displayed variance sign read.
+
+   These were one field, and the split is not tidying. `kind` was doing four
+   unrelated jobs - favourability here, grouping in the totalling loop below,
+   the CSS class in _finRow(), and the display sign in _finMoney() - and the two
+   favourability jobs are the ones that break when a line's block and its
+   direction of good disagree. That happens the moment the balancing plug moves
+   to a reserves drawdown: an INCOME-block line where a LARGER actual is worse,
+   because it means the trust covered its position by spending its reserves.
+   Under the old rule that line rendered green while the reserves drained, which
+   is the decorative-colour failure X3 was raised to remove, reintroduced on the
+   one line that most needs to be read correctly.
+
+   Everything except tone and variance sign still reads `kind`, so grouping,
+   totalling, the CSS classes and the display sign are all unchanged. */
+function _ieLine(id, label, plan, actual, kind, goodWhen){
+  goodWhen = goodWhen || _defaultGoodWhen(kind);
   var variance = actual - plan;
-  var favourable = kind === 'income' ? variance >= 0 : variance <= 0;
+  var favourable = goodWhen === 'up' ? variance >= 0 : variance <= 0;
   var tone = Math.abs(variance) < 0.05 ? 'neutral' : (favourable ? 'good' : 'warn');
-  return { id: id, label: label, kind: kind, budget: plan, actual: actual, variance: variance, tone: tone };
+  return { id: id, label: label, kind: kind, goodWhen: goodWhen, budget: plan,
+           actual: actual, variance: variance, tone: tone };
 }
 
 /* ---------- derivations ---------- */
 
-/* Finance. Reconciles by construction: every line except the balancing
-   "Other operating income" line is derived (and may be overridden), then the
-   balancing line is set to whatever makes
+/* Finance. Reconciles by construction: every OPERATIONAL line is derived (and
+   may be overridden), then one balancing line is solved for whatever makes
      sum(income) - sum(expenditure) === stats.budget
    hold exactly. An override on any derived line therefore re-runs the balance,
    so an authored figure can never break reconciliation. The balancing line is
    not itself overridable - the reconciliation requirement always wins.
-   -> {lines:[{id,label,kind,budget,actual,variance,tone}], surplus} */
+
+   WHICH LINE CARRIES THE PLUG IS THE WHOLE POINT (X11). It used to be
+   `Other operating income`, and putting the plug on an operational income line
+   made that line dishonest in a specific, repeatable way: it absorbed the sum of
+   everybody else's adverse variances and reported the total back as good news.
+   See the worked example above REPORTING_COEFFS.finance.
+
+   The plug is now `Reserves & contingency drawdown`, and it is the one line on
+   an NHS I&E where a board EXPECTS elasticity: a worsening position is covered
+   by drawing on reserves, a strong one transfers back. It is authored
+   goodWhen:'down' - it sits in the income block because that is which side of
+   the reconciliation it falls on, but a larger drawdown is a worse result, not a
+   better one. That combination is the reason _ieLine() carries `goodWhen` at all.
+
+   Every other income line is now derived and defensible, so nothing on the page
+   is favourable merely because something else went wrong.
+   -> {lines:[{id,label,kind,goodWhen,budget,actual,variance,tone}],
+       surplus, totalIncome, totalExpenditure} */
 function deriveIncomeExpenditure(stats, ctx){
   var c = REPORTING_COEFFS.finance;
   var budget = stats.budget;
@@ -732,26 +841,44 @@ function deriveIncomeExpenditure(stats, ctx){
   /* higher waiting -> lower elective throughput -> lower clinical income */
   var clinical = _field('finance', 'clinicalIncome',
     c.clinicalIncomeBase - c.kInc * (stats.waiting - _start('waiting')), ctx);
+  /* private work follows the trust's public standing */
+  var privatePatients = _field('finance', 'privateIncome',
+    c.privateIncomeBase + c.kPrivateRep * (stats.rep - _start('rep')), ctx);
+  /* education and research income falls with the safety record that placements
+     and trainees depend on */
+  var otherIncome = _field('finance', 'otherIncome',
+    c.otherIncomeBase - c.kOtherSafety * (_start('safety') - stats.safety), ctx);
   /* pay rises as the financial position and morale fall */
   var pay = _field('finance', 'paySpend',
     c.payBase + c.kPay * (-budget) + c.kMor * (_start('morale') - stats.morale), ctx);
   /* bank & agency rises as morale falls */
   var agency = _field('finance', 'agencySpend',
     c.agencyBase + c.kAgency * (_start('morale') - stats.morale), ctx);
-  /* non-pay rises as the financial position falls */
-  var nonPay = _field('finance', 'nonPaySpend',
-    c.nonPayBase + c.kNonPay * (-budget), ctx);
+  /* drugs rise with the financial position AND with activity - the second term
+     is what stops this and clinical supplies being one line printed twice */
+  var drugs = _field('finance', 'drugsSpend',
+    c.drugsBase + c.kDrugsBudget * (-budget) +
+    c.kDrugsActivity * (stats.waiting - _start('waiting')), ctx);
+  /* clinical supplies and the rest of non-pay rise as the position falls */
+  var supplies = _field('finance', 'suppliesSpend',
+    c.suppliesBase + c.kSuppliesBudget * (-budget), ctx);
 
-  var expenditure = pay + agency + nonPay;
-  /* balancing income line: (clinical + other) - expenditure === budget */
-  var other = budget + expenditure - clinical;
+  var expenditure = pay + agency + drugs + supplies;
+  /* The plug, solved not derived: everything else is fixed by this point, so
+     this is the only value that can make the reconciliation hold. Deliberately
+     NOT wrapped in _field() - an authored override here would break the
+     identity the whole function guarantees. */
+  var drawdown = budget + expenditure - clinical - privatePatients - otherIncome;
 
   var lines = [
-    _ieLine('clinicalIncome', 'Clinical income',        c.clinicalIncomeBase, clinical, 'income'),
-    _ieLine('otherIncome',    'Other operating income',  c.otherIncomeBase,    other,    'income'),
-    _ieLine('paySpend',       'Pay expenditure',         c.payBase,            pay,      'expenditure'),
-    _ieLine('agencySpend',    'Bank & agency',           c.agencyBase,         agency,   'expenditure'),
-    _ieLine('nonPaySpend',    'Non-pay expenditure',     c.nonPayBase,         nonPay,   'expenditure')
+    _ieLine('clinicalIncome', 'Clinical income',                   c.clinicalIncomeBase, clinical,        'income'),
+    _ieLine('privateIncome',  'Private patients',                  c.privateIncomeBase,  privatePatients, 'income'),
+    _ieLine('otherIncome',    'Other operating income',            c.otherIncomeBase,    otherIncome,     'income'),
+    _ieLine('drawdown',       'Reserves & contingency drawdown',   c.drawdownBase,       drawdown,        'income', 'down'),
+    _ieLine('paySpend',       'Pay expenditure',                   c.payBase,            pay,             'expenditure'),
+    _ieLine('agencySpend',    'Bank & agency',                     c.agencyBase,         agency,          'expenditure'),
+    _ieLine('drugsSpend',     'Drugs',                             c.drugsBase,          drugs,           'expenditure'),
+    _ieLine('suppliesSpend',  'Clinical supplies & other non-pay', c.suppliesBase,       supplies,        'expenditure')
   ];
 
   var income = 0, spend = 0, i;
@@ -975,8 +1102,9 @@ function getReportSection(id, stats, ctx){
       rows = [];
       for(var i = 0; i < ie.lines.length; i++){
         var l = ie.lines[i];
-        rows.push({ id: l.id, label: l.label, kind: l.kind, plan: l.budget,
-                    value: l.actual, variance: l.variance, unit: '£m', tone: l.tone });
+        rows.push({ id: l.id, label: l.label, kind: l.kind, goodWhen: l.goodWhen,
+                    plan: l.budget, value: l.actual, variance: l.variance,
+                    unit: '£m', tone: l.tone });
       }
       rows.push({ id: 'surplus', label: 'Surplus / (deficit)', value: ie.surplus,
                   unit: '£m', tone: getMetricBand('budget', stats.budget).tone });

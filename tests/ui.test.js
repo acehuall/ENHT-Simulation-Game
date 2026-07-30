@@ -853,7 +853,13 @@ async function driveToYearEnd(page, roles) {
       /* 7.1 I&E reconciliation across the full budget range, with and without
          an authored line override (keyed on a real quarter:option id). */
       let maxErr = 0, maxErrOverride = 0;
-      REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { clinicalIncome: 80, paySpend: 70 } };
+      /* BPS-001 X11: the override covers EVERY derived line in the new eight-line
+         schedule, both blocks, so the sweep proves the plug re-solves against an
+         authored figure on any of them - not just the two it used to name. */
+      REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: {
+        clinicalIncome: 80, privateIncome: 4, otherIncome: 9,
+        paySpend: 70, agencySpend: 9, drugsSpend: 15, suppliesSpend: 25
+      } };
       const overrideCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
       for (let b = -8; b <= 2.00001; b += 0.1) {
         const budget = Math.round(b * 10) / 10;
@@ -926,7 +932,22 @@ async function driveToYearEnd(page, roles) {
       const direction = {
         /* finance */
         payUpOnBudget: lineOf(budgetLow, 'paySpend') > lineOf(base, 'paySpend'),
-        nonPayUpOnBudget: lineOf(budgetLow, 'nonPaySpend') > lineOf(base, 'nonPaySpend'),
+        /* BPS-001 X11: `nonPaySpend` is split into drugs and clinical supplies.
+           Both still rise as the budget falls - the aggregate response is
+           unchanged, the coefficients were split 0.09 + 0.16 = the old 0.25 -
+           and drugs carries an ACTIVITY term the supplies line does not, which
+           is what stops the two being one line printed twice. */
+        drugsUpOnBudget: lineOf(budgetLow, 'drugsSpend') > lineOf(base, 'drugsSpend'),
+        suppliesUpOnBudget: lineOf(budgetLow, 'suppliesSpend') > lineOf(base, 'suppliesSpend'),
+        drugsUpOnActivity: lineOf(waitingHi, 'drugsSpend') > lineOf(base, 'drugsSpend'),
+        suppliesFlatOnActivity:
+          Math.abs(lineOf(waitingHi, 'suppliesSpend') - lineOf(base, 'suppliesSpend')) < 1e-9,
+        nonPayAggregateUnchanged:
+          Math.abs((lineOf(budgetLow, 'drugsSpend') + lineOf(budgetLow, 'suppliesSpend')) -
+                   (lineOf(base, 'drugsSpend') + lineOf(base, 'suppliesSpend')) - 0.25 * 4) < 1e-9,
+        /* the two new derived income lines, each on its own driver */
+        privateDownOnRep: lineOf(repLow, 'privateIncome') < lineOf(base, 'privateIncome'),
+        otherIncomeDownOnSafety: lineOf(safetyLow, 'otherIncome') < lineOf(base, 'otherIncome'),
         payUpOnMorale: lineOf(moraleLow, 'paySpend') > lineOf(base, 'paySpend'),
         agencyUpOnMorale: lineOf(moraleLow, 'agencySpend') > lineOf(base, 'agencySpend'),
         incomeDownOnWaiting: lineOf(waitingHi, 'clinicalIncome') < lineOf(base, 'clinicalIncome'),
@@ -1091,7 +1112,15 @@ async function driveToYearEnd(page, roles) {
     ok(s.deterministic, 'reporting: every derive* is deterministic for identical inputs');
     ok(s.noThrow, 'reporting: derive* never mutate recursively deep-frozen stats or ctx');
     ok(s.direction.payUpOnBudget, 'reporting: lowering budget increases pay spend');
-    ok(s.direction.nonPayUpOnBudget, 'reporting: lowering budget increases non-pay spend');
+    ok(s.direction.drugsUpOnBudget, 'reporting: lowering budget increases drugs spend');
+    ok(s.direction.suppliesUpOnBudget, 'reporting: lowering budget increases clinical supplies spend');
+    ok(s.direction.drugsUpOnActivity, 'reporting: raising waiting increases drugs spend (the activity term)');
+    ok(s.direction.suppliesFlatOnActivity,
+      'reporting: clinical supplies does NOT read activity, so it is not drugs printed twice');
+    ok(s.direction.nonPayAggregateUnchanged,
+      'reporting: drugs + supplies respond to budget exactly as the single non-pay line did');
+    ok(s.direction.privateDownOnRep, 'reporting: lowering reputation decreases private patient income');
+    ok(s.direction.otherIncomeDownOnSafety, 'reporting: lowering safety decreases other operating income');
     ok(s.direction.payUpOnMorale, 'reporting: lowering morale increases pay spend');
     ok(s.direction.agencyUpOnMorale, 'reporting: lowering morale increases bank & agency spend');
     ok(s.direction.incomeDownOnWaiting, 'reporting: raising waiting decreases clinical income');
@@ -4317,6 +4346,173 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- BPS-001 X11: I&E LINES, SUBTOTALS AND THE BALANCING PLUG ----
+     The defect: `Other operating income` was the balancing plug, so the one line
+     with no narrative behind it absorbed every other line's error and reported
+     the total back as the largest FAVOURABLE variance on the page - favourable
+     precisely because everything else had gone wrong. The plug is now an explicit
+     reserves drawdown, authored goodWhen:'down' so a bigger one reads adverse. */
+  console.log('\nBPS-001 X11 finance lines, subtotals and the balancing plug:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const c = REPORTING_COEFFS.finance;
+      const lineById = (ie, id) => ie.lines.find(l => l.id === id);
+
+      /* --- C.3 plan balance: the bases themselves reconcile to zero --- */
+      const planIncome = c.clinicalIncomeBase + c.privateIncomeBase +
+                         c.otherIncomeBase + c.drawdownBase;
+      const planSpend = c.payBase + c.agencyBase + c.drugsBase + c.suppliesBase;
+
+      /* --- C.6.2 opening board position: every line on its plan, surplus 0 --- */
+      const opening = deriveIncomeExpenditure(initialMetricStats(), null);
+      const openingOnPlan = {};
+      opening.lines.forEach(l => { openingOnPlan[l.id] = Math.abs(l.actual - l.budget) < 1e-9; });
+
+      /* --- C.1 grouping and favourability are separate concepts --- */
+      const goodWhenOf = {};
+      opening.lines.forEach(l => { goodWhenOf[l.id] = l.kind + '/' + l.goodWhen; });
+
+      /* --- C.6.5 a drawdown larger than plan is warn, never good --- */
+      const strained = Object.assign(initialMetricStats(),
+        { budget: -2, morale: 48, waiting: 78, safety: 50, rep: 50 });
+      const strainedIe = deriveIncomeExpenditure(strained, null);
+      const plug = lineById(strainedIe, 'drawdown');
+      /* and the reverse: a strong position transfers BACK to reserves and reads good */
+      const strongIe = deriveIncomeExpenditure(
+        Object.assign(initialMetricStats(), { budget: 1.5, morale: 70, waiting: 55, safety: 78, rep: 72 }), null);
+      const plugStrong = lineById(strongIe, 'drawdown');
+
+      /* --- C.6.4 the plug ignores overrides; derived lines still re-balance --- */
+      REPORTING_OVERRIDES['Q1:hire_temporary_staff'] = { finance: { drawdown: 99, otherIncome: 4 } };
+      const ovCtx = { quarterId: 'Q1', optionId: 'hire_temporary_staff' };
+      const ovIe = deriveIncomeExpenditure(strained, ovCtx);
+      const plugIgnoresOverride = lineById(ovIe, 'drawdown').actual !== 99;
+      const otherHonoursOverride = Math.abs(lineById(ovIe, 'otherIncome').actual - 4) < 1e-9;
+      const stillReconciles = Math.abs(ovIe.surplus - strained.budget) < 1e-9;
+      delete REPORTING_OVERRIDES['Q1:hire_temporary_staff'];
+
+      /* --- C.6.3 across the reachable node set, the plug is never the largest
+         favourable variance on a page where every operational line is adverse.
+         Same rec() walk as the sensitivity block, and the same player-visible
+         basis: a pack reports the PREVIOUS quarter's close, so Q4 is excluded. */
+      const OPERATIONAL = ['clinicalIncome', 'privateIncome', 'otherIncome',
+                           'paySpend', 'agencySpend', 'drugsSpend', 'suppliesSpend'];
+      let nodes = 0, plugTopFavourableOnAdversePage = 0, allAdversePages = 0, worstReconErr = 0;
+      (function rec(qi, stats, depth) {
+        if (qi === QUARTERS.length) return;
+        const opts = QUARTERS[qi].options;
+        for (let o = 0; o < opts.length; o++) {
+          const next = applyMetricEffects(stats, opts[o].effects);
+          const ctx = { quarterId: QUARTERS[qi].id, optionId: opts[o].id };
+          /* Q4's close is derivable but never rendered in a pack */
+          if (qi < QUARTERS.length - 1) {
+            const ie = deriveIncomeExpenditure(next, ctx);
+            nodes++;
+            worstReconErr = Math.max(worstReconErr, Math.abs(ie.surplus - next.budget));
+            /* favourability in the figure's own direction */
+            const fav = l => l.goodWhen === 'up' ? l.variance : -l.variance;
+            const everyOperationalAdverse =
+              OPERATIONAL.every(id => fav(lineById(ie, id)) < -1e-9);
+            if (everyOperationalAdverse) {
+              allAdversePages++;
+              const plugFav = fav(lineById(ie, 'drawdown'));
+              const bestOperational = Math.max.apply(null, OPERATIONAL.map(id => fav(lineById(ie, id))));
+              if (plugFav > 0 && plugFav > bestOperational) plugTopFavourableOnAdversePage++;
+            }
+          }
+          rec(qi + 1, next, depth + 1);
+        }
+      })(0, initialMetricStats(), 0);
+
+      /* --- B.2 mutual exclusion: no figure may be authored in BOTH the override
+         map (which REPLACES a derived value) and either additive map. The rule is
+         stated in reporting-model.js; this is what enforces it. Synthetic entries
+         prove the assertion can actually fail. */
+      function clashes() {
+        const out = [];
+        Object.keys(REPORTING_OVERRIDES).forEach(k => {
+          const quarter = k.split(':')[0];
+          [[REPORTING_EXOGENOUS, quarter], [REPORTING_MECHANISMS, k]].forEach(pair => {
+            const other = pair[0][pair[1]];
+            if (!other) return;
+            Object.keys(REPORTING_OVERRIDES[k]).forEach(section => {
+              if (!other[section]) return;
+              Object.keys(REPORTING_OVERRIDES[k][section]).forEach(field => {
+                if (Object.prototype.hasOwnProperty.call(other[section], field)) {
+                  out.push(k + ' ' + section + '.' + field);
+                }
+              });
+            });
+          });
+        });
+        return out;
+      }
+      const authoredClashes = clashes();
+      REPORTING_OVERRIDES['Q2'] = { operational: { dtocBeds: 41 } };
+      const detectsClash = clashes().length === 1;
+      delete REPORTING_OVERRIDES['Q2'];
+
+      return {
+        planIncome, planSpend, planBalance: Math.abs(planIncome - planSpend),
+        lineCount: opening.lines.length,
+        openingOnPlan, openingSurplus: opening.surplus, goodWhenOf,
+        plugTone: plug.tone, plugVariance: plug.variance,
+        plugStrongTone: plugStrong.tone, plugStrongVariance: plugStrong.variance,
+        plugIgnoresOverride, otherHonoursOverride, stillReconciles,
+        nodes, allAdversePages, plugTopFavourableOnAdversePage, worstReconErr,
+        authoredClashes, detectsClash
+      };
+    });
+
+    /* C.3 - the invariant that makes the opening pack readable */
+    eq(s.lineCount, 8, 'X11: the I&E has eight lines (was five)');
+    ok(s.planBalance < 1e-9,
+      'X11: the plan balances - income ' + s.planIncome.toFixed(1) +
+      ' equals expenditure ' + s.planSpend.toFixed(1));
+
+    /* C.6.2 */
+    Object.keys(s.openingOnPlan).forEach(id =>
+      ok(s.openingOnPlan[id], 'X11: at the opening board position ' + id + ' derives exactly to its plan'));
+    ok(Math.abs(s.openingSurplus) < 1e-9, 'X11: at the opening board position the surplus is exactly 0');
+
+    /* C.1 - the split that C.6.5 depends on */
+    eq(s.goodWhenOf.clinicalIncome, 'income/up', 'X11: clinical income is an income line that is better when larger');
+    eq(s.goodWhenOf.paySpend, 'expenditure/down', 'X11: pay is an expenditure line that is better when smaller');
+    eq(s.goodWhenOf.drawdown, 'income/down',
+      'X11: the reserves drawdown sits in the INCOME block but is better when SMALLER - the case kind alone cannot express');
+
+    /* C.6.5 - the assertion that fails if C.1 was skipped */
+    ok(s.plugVariance > 0.05 && s.plugTone === 'warn',
+      'X11: a drawdown larger than plan renders warn, never good (variance +' +
+      s.plugVariance.toFixed(2) + 'm, tone ' + s.plugTone + ')');
+    ok(s.plugStrongVariance < -0.05 && s.plugStrongTone === 'good',
+      'X11: a transfer back to reserves renders good (variance ' +
+      s.plugStrongVariance.toFixed(2) + 'm, tone ' + s.plugStrongTone + ')');
+
+    /* C.6.4 */
+    ok(s.plugIgnoresOverride, 'X11: the balancing plug ignores an authored override');
+    ok(s.otherHonoursOverride, 'X11: other operating income is now a normal derived line and honours an override');
+    ok(s.stillReconciles, 'X11: the I&E still reconciles with an override on a derived line');
+
+    /* C.6.1 / C.6.3 */
+    ok(s.worstReconErr < 1e-9,
+      'X11: income - expenditure equals budget on every player-visible node (worst error ' +
+      s.worstReconErr.toExponential(1) + ' over ' + s.nodes + ' nodes)');
+    eq(s.plugTopFavourableOnAdversePage, 0,
+      'X11: on the ' + s.allAdversePages + ' nodes where every operational line is adverse, the plug is never the largest favourable variance');
+
+    /* B.2 - the rule enforced rather than merely documented */
+    eq(s.authoredClashes.length, 0,
+      'X11/B2: no figure is authored in both REPORTING_OVERRIDES and an additive map' +
+      (s.authoredClashes.length ? ' (' + s.authoredClashes.join(', ') + ')' : ''));
+    ok(s.detectsClash, 'X11/B2: the mutual-exclusion check actually detects a planted clash');
+
+    ok(page._errors.length === 0, 'X11: no console/page errors');
+    await page.close();
+  }
+
   /* ---------------- BOARD PACK PHASE 5: GAUGE GEOMETRY + RENDERER ---------------- */
   console.log('\nboard pack phase 5 gauge renderer:');
   {
@@ -4559,6 +4755,82 @@ async function driveToYearEnd(page, roles) {
     ok(s.sideBySide, 'operations layout 1280x720: the gauge and the trend sit side by side');
     ok(s.footInViewport, 'operations layout 1280x720: the pack footer is reachable');
     ok(errors.length === 0, 'operations layout 1280x720: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BPS-001 X11: FINANCE LAYOUT + SUBTOTALS AT 1280x720 --------
+     X11 takes the table from eight rows to thirteen (three new lines, two
+     subtotals). BPS-001 §7 keeps 1280x720 as the compact baseline and X12's
+     projector breakpoint is explicitly NOT in this stage, so the taller table
+     has to fit at the small size with no help from a wide layout. The net
+     position is now the furthest-down number on the page and it is the one a
+     board acts on, so it is asserted on screen specifically. */
+  console.log('\nBPS-001 X11 finance layout + subtotals at 1280x720:');
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.goto(PAGE_URL);
+    await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
+    await page.waitForTimeout(400);
+    const s = await page.evaluate(() => {
+      quarterComplete = true;
+      openReport();
+      REPORT.page = 1; _syncReportPages(); setPerfTab(0);
+      const doc = document.documentElement;
+      const pages = document.querySelector('.rep-pages');
+      const modal = document.querySelector('.rep-modal').getBoundingClientRect();
+      const table = document.querySelector('.rep-fin-table').getBoundingClientRect();
+      const netEl = document.querySelector('.rep-fin-net');
+      const net = netEl.getBoundingClientRect();
+      const foot = document.getElementById('repClose').getBoundingClientRect();
+
+      /* the model's own totals, for the same snapshot the panel rendered */
+      const ie = deriveIncomeExpenditure(REPORT.data.snapshot.endStats,
+                                         _snapshotCtx(REPORT.data.snapshot));
+      const subtotals = Array.from(document.querySelectorAll('.rep-fin-subtotal'));
+      const money = td => parseFloat(td.textContent.replace(/[^0-9.]/g, ''));
+      const cellsOf = tr => Array.from(tr.querySelectorAll('td'));
+
+      return {
+        docOverflowX: doc.scrollWidth - doc.clientWidth,
+        pagesOverflowX: pages.scrollWidth - pages.clientWidth,
+        tableInViewport: table.top >= 0 && table.bottom <= window.innerHeight,
+        tableInsideModal: table.left >= modal.left && table.right <= modal.right,
+        netInViewport: net.top >= 0 && net.bottom <= window.innerHeight,
+        footInViewport: foot.top >= 0 && foot.bottom <= window.innerHeight,
+        lineRows: document.querySelectorAll('.rep-fin-table .rep-fin-line').length,
+        subtotalCount: subtotals.length,
+        subtotalLabels: subtotals.map(tr => cellsOf(tr)[0].textContent),
+        /* the rendered subtotals against the model's totals, at the 1 dp the
+           view prints - a subtotal that disagrees with the block above it is
+           worse than no subtotal at all */
+        incomeMatches: Math.abs(money(cellsOf(subtotals[0])[2]) - ie.totalIncome) < 0.05,
+        spendMatches: Math.abs(money(cellsOf(subtotals[1])[2]) - ie.totalExpenditure) < 0.05,
+        /* and the subtotal's variance cell is deliberately empty - see
+           _finSubtotal() on why a mixed-direction block must not be coloured */
+        incomeVarianceBlank: cellsOf(subtotals[0])[3].textContent.trim() === '',
+        spendVarianceBlank: cellsOf(subtotals[1])[3].textContent.trim() === '',
+        noToneClass: subtotals.every(tr => !/band-/.test(tr.className + ' ' + tr.innerHTML))
+      };
+    });
+    ok(s.docOverflowX <= 0, 'X11 layout 1280x720: the document does not scroll horizontally');
+    ok(s.pagesOverflowX <= 0, 'X11 layout 1280x720: the finance page does not scroll horizontally');
+    ok(s.tableInsideModal, 'X11 layout 1280x720: the finance table sits inside the modal horizontally');
+    ok(s.tableInViewport, 'X11 layout 1280x720: the whole finance table is on screen without scrolling');
+    ok(s.netInViewport, 'X11 layout 1280x720: the net position row is on screen without scrolling');
+    ok(s.footInViewport, 'X11 layout 1280x720: the pack footer is still reachable');
+    eq(s.lineRows, 8, 'X11 layout: eight I&E line rows render');
+    eq(s.subtotalCount, 2, 'X11 layout: both block subtotals render');
+    eq(JSON.stringify(s.subtotalLabels), JSON.stringify(['Total income', 'Total expenditure']),
+      'X11 layout: the subtotals are labelled for their blocks');
+    ok(s.incomeMatches, 'X11 layout: the rendered income subtotal matches totalIncome');
+    ok(s.spendMatches, 'X11 layout: the rendered expenditure subtotal matches totalExpenditure');
+    ok(s.incomeVarianceBlank && s.spendVarianceBlank,
+      'X11 layout: a subtotal carries no variance figure (its block has mixed directions of good)');
+    ok(s.noToneClass, 'X11 layout: a subtotal carries no band-{tone} class, so it asserts no favourability');
+    ok(errors.length === 0, 'X11 layout 1280x720: no console/page errors');
     await page.close();
   }
 

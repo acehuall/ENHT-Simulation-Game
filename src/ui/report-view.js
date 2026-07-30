@@ -746,9 +746,17 @@ function _finMoney(v, kind){
 
 /* Variance shown by favourability, not raw arithmetic sign: a favourable
    movement (income over-recovery OR an underspend) reads "+", an adverse one
-   reads "-", so the sign always agrees with the tone colour for both kinds. */
+   reads "-", so the sign always agrees with the tone colour for both kinds.
+
+   Favourability comes from `goodWhen`, NOT from `kind`. The two agree on every
+   conventional line, and deliberately disagree on the reserves drawdown: it
+   sits in the income block (kind) but a bigger drawdown is worse (goodWhen), so
+   reading `kind` here would print a green "+" over a trust emptying its
+   reserves. The fallback keeps a caller that passes only `kind` behaving exactly
+   as before, and mirrors _defaultGoodWhen() in the model. */
 function _finVariance(r){
-  var fav=r.kind==='income' ? r.variance : -r.variance;
+  var good=r.goodWhen || (r.kind==='income' ? 'up' : 'down');
+  var fav=good==='up' ? r.variance : -r.variance;
   /* A variance that rounds to nothing reads as a real £0.0m figure, so show an
      em dash for "on plan" instead. */
   if(Math.abs(fav)<0.05) return '&mdash;';
@@ -762,6 +770,31 @@ function _finRow(r){
     '<td>'+_finMoney(r.plan,r.kind)+'</td>'+
     '<td>'+_finMoney(r.value,r.kind)+'</td>'+
     '<td class="rep-perf-cell band-'+r.tone+'">'+_finVariance(r)+'</td></tr>';
+}
+
+/* Block subtotal. deriveIncomeExpenditure() has always returned totalIncome and
+   totalExpenditure and nothing has ever rendered them, so the board could see
+   eight lines and a net position but never "what did we earn" or "what did we
+   spend" - the two numbers a finance report exists to state.
+
+   THE VARIANCE CELL IS DELIBERATELY EMPTY, and this is the one place the reader
+   is likeliest to want it filled in. The income block now contains lines whose
+   directions of good DISAGREE: an over-recovery of clinical income is good, a
+   larger reserves drawdown is not. Summing their variances gives an arithmetic
+   total with no favourability at all, and colouring it band-{tone} would assert
+   one - the exact decorative-colour failure the goodWhen split exists to
+   prevent, rebuilt on the subtotal row. Per-line variances above carry the
+   direction; the net position below carries the verdict.
+
+   Uses the rep-fin-subhead idiom rather than a third row class, so the block
+   sub-heads and their subtotals read as one pair of brackets around each block. */
+function _finSubtotal(label, plan, actual, kind){
+  var cls=kind==='income'?'fin-income':'fin-expenditure';
+  return '<tr class="rep-fin-subhead rep-fin-subtotal '+cls+'">'+
+    '<td>'+escapeHTML(label)+'</td>'+
+    '<td>'+_finMoney(plan,kind)+'</td>'+
+    '<td>'+_finMoney(actual,kind)+'</td>'+
+    '<td></td></tr>';
 }
 
 /* Direction-aware wording for the nearest authored threshold, with the metric's
@@ -799,12 +832,17 @@ function _perfFinancePanel(data){
   var band=getMetricBand('budget', budget);
   var near=_thresholdDistanceText('budget', budget);
   var income=[], spend=[], net=null, i, r;
+  /* Subtotals are summed from the SAME rows that render, not read from a second
+     source, so a rendered block and its total cannot disagree. */
+  var incomePlan=0, incomeActual=0, spendPlan=0, spendActual=0;
   for(i=0;i<section.rows.length;i++){
     r=section.rows[i];
     if(r.id==='surplus'){ net=r; continue; }
-    if(r.kind==='income') income.push(_finRow(r));
-    else spend.push(_finRow(r));
+    if(r.kind==='income'){ income.push(_finRow(r)); incomePlan+=r.plan; incomeActual+=r.value; }
+    else { spend.push(_finRow(r)); spendPlan+=r.plan; spendActual+=r.value; }
   }
+  income.push(_finSubtotal('Total income', incomePlan, incomeActual, 'income'));
+  spend.push(_finSubtotal('Total expenditure', spendPlan, spendActual, 'expenditure'));
   /* The net position is the number a board acts on, so it is the dominant
      figure: its own footer row, below both blocks, sign-carrying and large. */
   var netRow=net ? ('<tr class="rep-fin-net band-'+net.tone+'"><td>'+escapeHTML(net.label)+'</td>'+

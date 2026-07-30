@@ -660,12 +660,40 @@ function _finRow(r){
     '<td class="rep-perf-cell band-'+r.tone+'">'+_finVariance(r)+'</td></tr>';
 }
 
+/* Direction-aware wording for the nearest authored threshold, with the metric's
+   own unit on the number.
+
+   The line used to read Math.abs(distance) + ' to ' + title unconditionally, so
+   once a threshold was passed it asserted the opposite of the truth: at budget
+   -3.1 the board had breached the control total and the pack said it was 0.1
+   away from doing so. It was also the only unitless figure on the Finance tab.
+
+   `state` decides the preposition and comes from describeThresholdDistance(),
+   which reads threshold.dir - the sign of the distance is inverted for an
+   'above' threshold and would get SURPLUS DELIVERED backwards.
+
+   The pack's typographic register is uppercase here (BUDGET CRITICAL &middot;
+   ...) and the authored titles are uppercase, so both are left alone and only
+   the connectives are lower case. &pound; is inserted raw, as everywhere else in
+   this layer; the authored title still goes through escapeHTML(). def.money
+   picks the unit so a non-money metric reusing this never prints a pound sign.
+   -> '' when the metric has no authored thresholds. */
+function _thresholdDistanceText(key, value){
+  var d=describeThresholdDistance(key, value), def, mag;
+  if(!d) return '';
+  if(d.state==='reached') return escapeHTML(d.threshold.title)+' threshold reached';
+  def=getMetricDef(key);
+  mag=(def && def.money) ? ('&pound;'+d.magnitude.toFixed(1)+'m')
+                         : (d.magnitude.toFixed(1)+(def && def.unit ? ' '+escapeHTML(def.unit) : ''));
+  return mag+' '+(d.state==='crossed' ? 'beyond' : 'to')+' '+escapeHTML(d.threshold.title);
+}
+
 function _perfFinancePanel(data){
   var ctx=_snapshotCtx(data.snapshot);
   var section=getReportSection('finance', data.snapshot.endStats, ctx);
   var budget=data.snapshot.endStats.budget;
   var band=getMetricBand('budget', budget);
-  var near=getNearestThreshold('budget', budget);
+  var near=_thresholdDistanceText('budget', budget);
   var income=[], spend=[], net=null, i, r;
   for(i=0;i<section.rows.length;i++){
     r=section.rows[i];
@@ -679,7 +707,7 @@ function _perfFinancePanel(data){
     '<td></td><td class="rep-perf-cell band-'+net.tone+'">'+_perfMoney(net.value,false)+'</td>'+
     '<td></td></tr>') : '';
   var bandLine='BUDGET '+(band?escapeHTML(band.label):'')+
-    (near?(' &middot; '+Math.abs(near.distance).toFixed(1)+'m to '+escapeHTML(near.threshold.title)):'');
+    (near?(' &middot; '+near):'');
   return [
     '<div class="rep-perf-panel" role="tabpanel" id="perfPanelFinance" aria-labelledby="perfTabFinance"'+
       (_perfTab===0?'':' hidden')+' data-perf-panel="0">',

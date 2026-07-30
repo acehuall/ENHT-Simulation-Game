@@ -933,7 +933,11 @@ async function driveToYearEnd(page, roles) {
         vacancyUp: wfMorale.vacancyRate > wfBase.vacancyRate,
         turnoverUp: wfMorale.turnover > wfBase.turnover,
         sicknessUp: wfMorale.sickness > wfBase.sickness,
-        bankAgencyUp: wfMorale.bankAgencySpend > wfBase.bankAgencySpend,
+        /* Bank & agency is derived ONCE, on the finance I&E line - the duplicate
+           workforce copy of the same coefficients is gone. Re-pointed here rather
+           than dropped so the morale -> agency behaviour stays covered. */
+        bankAgencyUp: lineOf(moraleLow, 'agencySpend') > lineOf(base, 'agencySpend'),
+        bankAgencyNotInWorkforce: !wfBase.hasOwnProperty('bankAgencySpend'),
         surveyDownOnMorale: wfMorale.surveyScore < wfBase.surveyScore,
         surveyDownOnRep: wfRep.surveyScore < wfBase.surveyScore,
         /* quality */
@@ -1001,7 +1005,9 @@ async function driveToYearEnd(page, roles) {
     ok(s.direction.vacancyUp, 'reporting: lowering morale increases vacancy rate');
     ok(s.direction.turnoverUp, 'reporting: lowering morale increases turnover');
     ok(s.direction.sicknessUp, 'reporting: lowering morale increases sickness absence');
-    ok(s.direction.bankAgencyUp, 'reporting: lowering morale increases bank & agency spend');
+    ok(s.direction.bankAgencyUp, 'reporting: lowering morale increases bank & agency spend on the I&E line');
+    ok(s.direction.bankAgencyNotInWorkforce,
+       'reporting: bank & agency is derived once, under finance, not duplicated in workforce');
     ok(s.direction.surveyDownOnMorale, 'reporting: lowering morale decreases staff survey score');
     ok(s.direction.surveyDownOnRep, 'reporting: lowering reputation decreases staff survey score');
     ok(s.direction.incidentsUp, 'reporting: lowering safety increases moderate-harm incidents');
@@ -3199,12 +3205,16 @@ async function driveToYearEnd(page, roles) {
         const section = getReportSection('operations', stats, null);
         const gauge = getOccupancyGauge(stats, null);
         const occ = rowOf(section, 'occupancy');
-        const waitingTone = getMetricBand('waiting', w).tone;
         if (occ.tone !== gauge.tone) toneMismatch++;
         if (occ.value !== gauge.value) valueMismatch++;
         if (occ.commentary !== _commentary('waiting', w)) commentaryMismatch++;
+        /* Every row now takes its tone from its OWN figure against its own
+           authored bands, not from `waiting`. Before X3 this loop asserted the
+           opposite - that the other four rows inherited waiting's tone - which
+           is the defect: the colour said nothing about the figure it sat on. */
         section.rows.forEach(r => {
-          if (r.id !== 'occupancy' && r.tone !== waitingTone) otherRowMismatch++;
+          const expected = getBenchmarkTone(REPORTING_BENCHMARKS.operational[r.id + 'Bands'], r.value);
+          if (r.tone !== expected) otherRowMismatch++;
         });
       }
 
@@ -3241,7 +3251,7 @@ async function driveToYearEnd(page, roles) {
     eq(s.toneMismatch, 0, 'row agreement: the occupancy row tone equals the gauge tone at every position');
     eq(s.valueMismatch, 0, 'row agreement: the occupancy row value equals the gauge value');
     eq(s.commentaryMismatch, 0, 'row agreement: the occupancy commentary is still keyed to waiting');
-    eq(s.otherRowMismatch, 0, 'row agreement: the other four operational rows still take waiting\'s tone');
+    eq(s.otherRowMismatch, 0, 'row agreement: every operational row takes its tone from its own benchmark bands');
     eq(s.disagreement.rowTone, s.disagreement.gaugeTone,
        'row agreement: the row follows the benchmark where the two tone sources disagree');
     ok(s.disagreement.rowTone !== s.disagreement.waitingTone,
@@ -3251,6 +3261,187 @@ async function driveToYearEnd(page, roles) {
     ok(s.rendered.cellClass.indexOf(s.rendered.expected) >= 0,
        'row agreement: the rendered occupancy cell carries ' + s.rendered.expected);
     ok(page._errors.length === 0, 'row agreement: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BPS-001 X3: PER-FIGURE BENCHMARK TONE ---------------- */
+  console.log('\nBPS-001 X3 per-figure benchmark tone:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      /* --- band contract guard, over every authored list ---
+         `to` strictly ascending, final entry open-ended, and the tone sequence
+         strictly monotonic in TONE_RANK. The monotonicity check is what catches
+         a HIGHER-is-better list authored in the lower-is-better order, which
+         getBenchmarkTone() is direction-agnostic about and would happily serve. */
+      const lists = [];
+      Object.keys(REPORTING_BENCHMARKS).forEach(ns => {
+        Object.keys(REPORTING_BENCHMARKS[ns]).forEach(key => {
+          const v = REPORTING_BENCHMARKS[ns][key];
+          if (Array.isArray(v)) lists.push({ name: ns + '.' + key, bands: v });
+        });
+      });
+      const contract = lists.map(l => {
+        let ascends = true, monotonic = true, up = null;
+        for (let i = 1; i < l.bands.length; i++) {
+          if (!(l.bands[i].to > l.bands[i - 1].to)) ascends = false;
+          const d = getToneRank(l.bands[i].tone) - getToneRank(l.bands[i - 1].tone);
+          if (d === 0) { monotonic = false; continue; }
+          const thisUp = d > 0;
+          if (up === null) up = thisUp;
+          else if (up !== thisUp) monotonic = false;
+        }
+        return {
+          name: l.name,
+          ascends,
+          monotonic,
+          openEnded: l.bands[l.bands.length - 1].to === Infinity,
+          length: l.bands.length
+        };
+      });
+
+      /* --- never events at zero --- */
+      const zeroSafety = Object.assign(initialMetricStats(), { safety: 50 });
+      const zeroRow = getReportSection('quality', zeroSafety, null).rows
+        .filter(r => r.id === 'neverEvents')[0];
+
+      /* --- per-row tone independence, asserted per figure on the rendered
+         cells. safety 50 / patsat 55 straddles four different band boundaries
+         across the five Quality figures, so a tab that still took one tone from
+         one source metric cannot pass this. --- */
+      const stats = Object.assign(initialMetricStats(), { safety: 50, patsat: 55 });
+      const snapshot = { quarterId: 'Q1', optionId: 'x', outcome: {}, history: [], endStats: stats };
+      const host = document.createElement('div');
+      host.innerHTML = _perfQualityPanel({ snapshot });
+      const rendered = Array.from(host.querySelectorAll('.rep-perf-row')).map(row => ({
+        label: row.querySelector('.lbl').textContent,
+        cls: row.querySelector('.val').className
+      }));
+      const section = getReportSection('quality', stats, null);
+      const expectedPerRow = section.rows.map(r => ({
+        id: r.id,
+        expected: getBenchmarkTone(REPORTING_BENCHMARKS.quality[r.id + 'Bands'], r.value),
+        got: r.tone
+      }));
+
+      return {
+        contract,
+        listCount: lists.length,
+        zeroValue: zeroRow.value,
+        zeroTone: zeroRow.tone,
+        renderedClasses: rendered.map(r => r.cls),
+        distinctTones: new Set(rendered.map(r => r.cls.replace(/^.*band-/, ''))).size,
+        allSameTone: new Set(rendered.map(r => r.cls.replace(/^.*band-/, ''))).size === 1,
+        perRow: expectedPerRow,
+        /* Commentary is deliberately untouched by X3: still keyed to the source
+           metric, still de-duplicated across a run of rows sharing a source. */
+        commentaryStillBySource:
+          section.rows.filter(r => r.source === 'safety').every(r => r.commentary === _commentary('safety', 50)) &&
+          section.rows.filter(r => r.source === 'patsat').every(r => r.commentary === _commentary('patsat', 55))
+      };
+    });
+
+    ok(s.listCount >= 13, 'benchmark contract: every derived figure has an authored band list (' + s.listCount + ')');
+    s.contract.forEach(c => {
+      ok(c.ascends, 'benchmark contract: ' + c.name + ' has strictly ascending `to`');
+      ok(c.openEnded, 'benchmark contract: ' + c.name + ' ends open (to: Infinity)');
+      ok(c.monotonic, 'benchmark contract: ' + c.name + ' tone sequence is monotonic in TONE_RANK');
+    });
+    eq(s.zeroValue, 0, 'never events: safety 50 derives to zero never events');
+    eq(s.zeroTone, 'good', 'never events: zero never events reads good, not warn');
+    ok(!s.allSameTone, 'row tone: the Quality rows do not all share one tone');
+    ok(s.distinctTones >= 3, 'row tone: the Quality rows carry at least three distinct tones (' + s.distinctTones + ')');
+    s.perRow.forEach(r =>
+      eq(r.got, r.expected, 'row tone: ' + r.id + ' is banded on its own figure (' + r.expected + ')'));
+    ok(s.renderedClasses.every(c => /band-(good|neutral|warn|critical|great)/.test(c)),
+       'row tone: every rendered value cell carries a band-{tone} class');
+    ok(s.commentaryStillBySource, 'row tone: commentary is still keyed to the source metric, unchanged');
+    ok(page._errors.length === 0, 'row tone: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BPS-001 X2: THRESHOLD DISTANCE DIRECTION ---------------- */
+  console.log('\nBPS-001 X2 threshold distance:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    const s = await page.evaluate(() => {
+      const at = v => {
+        const d = describeThresholdDistance('budget', v);
+        return d ? { title: d.threshold.title, state: d.state, mag: Number(d.magnitude.toFixed(3)) } : null;
+      };
+      /* Both sides of all three authored budget thresholds. The surplus one is
+         dir:'above', where the sign of `distance` is inverted - the case that
+         catches an implementation that read the sign instead of `dir`. */
+      const cases = {
+        notifiableApproach: at(-1.4),
+        notifiableCrossed:  at(-1.6),
+        breachApproach:     at(-2.9),
+        breachCrossed:      at(-3.1),
+        surplusApproach:    at(0.9),
+        surplusCrossed:     at(1.1),
+        /* exact boundary at each threshold, plus one inside the 0.05 epsilon */
+        notifiableExact:    at(-1.5),
+        breachExact:        at(-3.0),
+        surplusExact:       at(1.0),
+        breachInsideEps:    at(-3.02),
+        breachOutsideEps:   at(-3.06),
+        /* nearest-threshold selection is unchanged: -4.0 still reports the
+           -3.0 breach, crossed by 1.0 */
+        farBeyondBreach:    at(-4.0),
+        noThresholds:       describeThresholdDistance('nope', 0)
+      };
+
+      const textAt = v => {
+        const host = document.createElement('div');
+        host.innerHTML = _perfFinancePanel({
+          snapshot: {
+            quarterId: 'Q1', optionId: 'x', outcome: {}, history: [],
+            endStats: Object.assign(initialMetricStats(), { budget: v })
+          }
+        });
+        return host.querySelector('.rep-perf-band').textContent;
+      };
+      return {
+        cases,
+        rendered: { crossed: textAt(-3.1), approaching: textAt(-2.9), reached: textAt(-3.0) },
+        /* getNearestThreshold still answers its own contract after delegating. */
+        nearestStillWorks: (() => {
+          const n = getNearestThreshold('budget', -3.1);
+          return n && n.threshold.title === 'DEFICIT BREACH' && Math.abs(n.distance - 0.1) < 1e-9;
+        })()
+      };
+    });
+
+    const c = s.cases;
+    eq(c.notifiableApproach.state, 'approaching', 'threshold: budget -1.4 is approaching DEFICIT NOTIFIABLE');
+    eq(c.notifiableApproach.title, 'DEFICIT NOTIFIABLE', 'threshold: budget -1.4 selects DEFICIT NOTIFIABLE');
+    eq(c.notifiableCrossed.state, 'crossed', 'threshold: budget -1.6 has crossed DEFICIT NOTIFIABLE');
+    eq(c.breachApproach.state, 'approaching', 'threshold: budget -2.9 is approaching DEFICIT BREACH');
+    eq(c.breachCrossed.state, 'crossed', 'threshold: budget -3.1 has crossed DEFICIT BREACH');
+    eq(c.surplusApproach.state, 'approaching', 'threshold: budget 0.9 is approaching SURPLUS DELIVERED');
+    eq(c.surplusCrossed.state, 'crossed', 'threshold: budget 1.1 has crossed SURPLUS DELIVERED');
+    eq(c.notifiableExact.state, 'reached', 'threshold: budget exactly -1.5 reads as reached');
+    eq(c.breachExact.state, 'reached', 'threshold: budget exactly -3.0 reads as reached');
+    eq(c.surplusExact.state, 'reached', 'threshold: budget exactly 1.0 reads as reached');
+    eq(c.breachInsideEps.state, 'reached', 'threshold: 0.02 away rounds to nothing and reads as reached');
+    eq(c.breachOutsideEps.state, 'crossed', 'threshold: 0.06 away is outside the epsilon and reads as crossed');
+    eq(c.farBeyondBreach.title, 'DEFICIT BREACH', 'threshold: budget -4.0 still selects the nearest threshold');
+    eq(c.farBeyondBreach.mag, 1, 'threshold: budget -4.0 is 1.0 beyond DEFICIT BREACH');
+    eq(c.noThresholds, null, 'threshold: a metric with no thresholds returns null');
+    ok(s.nearestStillWorks, 'threshold: getNearestThreshold keeps its {threshold, distance} contract');
+    /* Rendered, not just the pure function: the view can double-escape a correct
+       result, which is how the missing currency symbol survived in the first place. */
+    ok(s.rendered.crossed.indexOf('£0.1m beyond DEFICIT BREACH') >= 0,
+       'threshold: the rendered band line reads "£0.1m beyond DEFICIT BREACH" (' + s.rendered.crossed + ')');
+    ok(s.rendered.approaching.indexOf('£0.1m to DEFICIT BREACH') >= 0,
+       'threshold: the rendered band line reads "£0.1m to DEFICIT BREACH" (' + s.rendered.approaching + ')');
+    ok(s.rendered.reached.indexOf('DEFICIT BREACH threshold reached') >= 0,
+       'threshold: the rendered band line reads "DEFICIT BREACH threshold reached" (' + s.rendered.reached + ')');
+    ok(s.rendered.crossed.indexOf('&pound;') < 0,
+       'threshold: the currency entity is resolved, not printed literally');
+    ok(page._errors.length === 0, 'threshold: no console/page errors');
     await page.close();
   }
 

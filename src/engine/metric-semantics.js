@@ -95,6 +95,46 @@ function getThresholdCrossings(key, prevValue, nextValue){
   return found;
 }
 
+/* A gap this small rounds to 0.0 at one decimal place, so printing it as a
+   distance ("0.0m to DEFICIT BREACH") states a falsehood about a figure that is
+   effectively on the line. Same tolerance the report layer already uses for
+   "rounds to nothing" in _finVariance / _reportMetricDelta. */
+var THRESHOLD_REACHED_EPS=0.05;
+
+/* The nearest authored threshold to a value, with a signed distance AND which
+   side of it the value is on.
+
+   DIRECTION COMES FROM threshold.dir, NEVER FROM THE SIGN OF distance. `distance`
+   is at-value, which is positive when approaching a 'below' threshold and
+   positive when a 'above' threshold has been crossed - so a caller reading the
+   sign gets the surplus threshold exactly backwards. The convention here is the
+   one getThresholdCrossings() already encodes:
+     dir:'below' is crossed once value <= at
+     dir:'above' is crossed once value >= at
+
+   Selection is by smallest absolute gap, so at budget -4.0 this still reports the
+   -3.0 breach as crossed by 1.0 rather than jumping to a nearer-in-spirit
+   threshold. That is the useful reading and getNearestThreshold() delegates here
+   so there is one implementation of it.
+
+   Returns numbers and the authored threshold only - no wording, no unit, no
+   entity, no HTML. Formatting is the view's job (see the file header).
+   -> {threshold, distance, magnitude, state} | null when the metric has no
+   thresholds. state is 'approaching' | 'crossed' | 'reached'. */
+function describeThresholdDistance(key, value){
+  var def=getMetricDef(key), best=null, bestGap=Infinity, i, gap, crossed;
+  if(!def || !def.thresholds || !def.thresholds.length) return null;
+  for(i=0;i<def.thresholds.length;i++){
+    gap=Math.abs(def.thresholds[i].at-value);
+    if(gap<bestGap){ bestGap=gap; best=def.thresholds[i]; }
+  }
+  if(!best) return null;
+  if(bestGap<THRESHOLD_REACHED_EPS) crossed='reached';
+  else if(best.dir==='below') crossed=(value<=best.at) ? 'crossed' : 'approaching';
+  else crossed=(value>=best.at) ? 'crossed' : 'approaching';
+  return {threshold:best, distance:best.at-value, magnitude:bestGap, state:crossed};
+}
+
 /* Plain-language one-liner for a single metric.
    -> {key, label, value, valueText, band, line} */
 function describeMetric(key, value){

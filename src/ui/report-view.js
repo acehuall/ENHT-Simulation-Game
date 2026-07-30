@@ -118,25 +118,93 @@ function _reportMetricDelta(metric){
    build:       (data) -> HTML string for the page body
    afterRender: optional (data) -> void, run after the page HTML is in
                 the DOM. For pages that draw into a <canvas>, which
-                cannot be done from an HTML string. */
+                cannot be done from an HTML string.
+   period:      which temporal frame the page describes - 'outcome' for a
+                closed quarter, 'decision' for the live one. Drives the
+                period strip under the heading. A page with no `period`
+                gets no strip.
+   titleFor:    optional (data) -> string, overriding `title` for this
+                pack. `title` stays a plain string and remains the default:
+                the descriptor list is read as data (the page titles are
+                asserted straight off it), and a function-valued `title`
+                turns that into an undefined. */
 var REPORT_PAGES=[
-  {id:'results',     title:'Prior Quarter Results', build:_fillReportPage1,
+  {id:'results',     title:'Prior Quarter Results', period:'outcome',
+   /* At Q1 there is no prior quarter, so the static title claims either that a
+      decision has already been taken or that there is an earlier playable
+      period. Naming it the opening position also gives the flat Q1 pack an
+      honest account of its own flatness. */
+   titleFor:function(data){
+     return _isBaselinePack(data) ? 'Opening Board Position' : 'Prior Quarter Results';
+   },
+   build:_fillReportPage1,
    afterRender:function(data){ _drawBoardBalanceRadar(data); }},
-  {id:'performance', title:'Performance Analysis',  build:_fillReportPerformance,
+  {id:'performance', title:'Performance Analysis',  period:'outcome', build:_fillReportPerformance,
    afterRender:function(data){ _drawPerformanceCharts(data); _drawOccupancyGauge(data); }},
-  {id:'issue',       title:'Issue At Hand',         build:_fillReportPage2,
+  {id:'issue',       title:'Issue At Hand',         period:'decision', build:_fillReportPage2,
    afterRender:function(data){ _drawReportIssueChart(data.issue); }},
-  {id:'options',     title:'Options For Decision',  build:_fillReportPage3}
+  {id:'options',     title:'Options For Decision',  period:'decision', build:_fillReportPage3}
 ];
 
-function _reportPageHead(pageId){
-  var i, n;
+/* True when pages 1-2 describe the opening board position rather than the outcome
+   of a committed decision. _reportSnapshot() falls back to DEFAULT_OUTCOME before
+   the first decision, whose quarterId is the sentinel 'Q0' - an id that is not in
+   QUARTERS. hasQuarter() is the non-warning way to detect that; getQuarterById()
+   would warn and hand back Q1, labelling the Q1 baseline as a prior Q1 decision.
+   The string 'Q0' must never reach the page. */
+function _isBaselinePack(data){
+  var outcome=data && data.snapshot ? data.snapshot.outcome : null;
+  if(!outcome) return true;
+  if(typeof hasQuarter==='function') return !hasQuarter(outcome.quarterId);
+  return outcome.quarterId===DEFAULT_OUTCOME.quarterId;
+}
+
+/* ---------- period strip (X5) ----------
+   The pack presents three temporal frames at once and used to name exactly one:
+   the header chip carried the current decision quarter, while pages 1-2 (this
+   quarter's month closes, driven by the PREVIOUSLY committed decision) were
+   headed with the static string 'Prior Quarter Results' and pages 3-4 (the
+   current quarter's issue and options) said nothing at all. A player could
+   reasonably read the Q3 Finance tab as the live Q3 situation. The footer did
+   carry the prior decision, but in small type at the bottom of the modal.
+
+   One short line under each page heading, with a stable text label rather than
+   colour alone. One line, not a paragraph: page 1 has no height budget for prose
+   (see the note on _reportMetricCard). */
+function _reportPeriodStrip(period, data){
+  var label, name, q;
+  if(period==='outcome'){
+    if(_isBaselinePack(data)){
+      /* States the absence rather than implying a decision, matching the
+         'Opening Board Position' title. */
+      label='BASELINE POSITION'; name='NO PRIOR DECISION';
+    }else{
+      q=getQuarterById(data.snapshot.outcome.quarterId);
+      label='OUTCOME REPORTED';
+      /* Uppercased to match how _showRecordedDecision() prints the same title in
+         the footer. */
+      name=q.label+' - '+String(data.snapshot.outcome.optionTitle||'').toUpperCase();
+    }
+  }else if(period==='decision'){
+    label='DECISION REQUIRED';
+    name=data.quarter.displayName;
+  }else{
+    return '';
+  }
+  return '<div class="rep-period"><b>'+escapeHTML(label)+'</b>'+
+         '<span>&middot; '+escapeHTML(name)+'</span></div>';
+}
+
+function _reportPageHead(pageId, data){
+  var i, n, p, title;
   for(i=0;i<REPORT_PAGES.length;i++){
     if(REPORT_PAGES[i].id===pageId){
-      n=i+1;
+      p=REPORT_PAGES[i]; n=i+1;
+      title=(typeof p.titleFor==='function' && data) ? p.titleFor(data) : p.title;
       return '<div class="rep-page-head"><span>'+
              (n<10?'0':'')+n+'</span><h3>'+
-             escapeHTML(REPORT_PAGES[i].title)+'</h3></div>';
+             escapeHTML(title)+'</h3></div>'+
+             _reportPeriodStrip(p.period, data);
     }
   }
   return '';
@@ -152,7 +220,11 @@ function _reportShell(data){
       '<div class="rep-top">',
         '<div class="nsq">N</div>',
         '<div><h2 id="repTitle">NORTHBROOK GENERAL HOSPITAL</h2>',
-        '<div class="rep-sub">QUARTERLY BOARD PACK - DECISION REQUIRED</div></div>',
+        /* Just the masthead. It used to read "... - DECISION REQUIRED" above all
+           four pages, which contradicts the OUTCOME REPORTED strip on pages 1-2
+           at the top of the same screen - the ambiguity the strips exist to
+           remove. The per-page strip carries the distinction now. */
+        '<div class="rep-sub">QUARTERLY BOARD PACK</div></div>',
         '<div class="chip">'+escapeHTML(q.displayName)+'</div>',
       '</div>',
       '<div class="rep-pages">',
@@ -178,9 +250,20 @@ function _reportShell(data){
    meaning of the waiting axis - exactly the misreading normalisation exists to
    prevent.
 
-   The two rings are Month 2 and Month 3, not open and close, because the
-   board's question on page 1 is which way the quarter was travelling as it
-   ended. */
+   The two rings are quarter OPEN and quarter CLOSE, the same window the six
+   metric cards beside them read. They used to be Month 2 and Month 3, on the
+   argument that the board's question on page 1 is which way the quarter was
+   travelling as it ended. That is a real argument, and it lost: a full-quarter
+   comparison and a single-month comparison sat adjacent on one page, always
+   disagreeing in magnitude and sometimes in direction, with no shared label. A
+   reader assumes two neighbouring panels share a basis, and the radar's own
+   legend is not enough to overturn that.
+
+   The intra-quarter trend is retained as context, not as the headline: page 2's
+   waiting-pressure chart plots OPEN/M1/M2/M3 and declares its own time base, and
+   the month closes stay in the snapshot. The window is now labelled once for the
+   whole page by the X5 period strip, which is why no second caption is added to
+   the metric grid. */
 var RADAR_PRIOR_COLOR='#98a3bd';
 var RADAR_LATEST_COLOR='#23c4b4';
 
@@ -193,15 +276,11 @@ var REPORT_TONE_INK = {
   good:'#1e8f4e',     great:'#0f8f82'
 };
 
-/* monthEnds is captured at pack-open time and is always present in practice;
-   the start/end fallback keeps page 1 rendering if a caller ever hands over a
-   snapshot built before phase 1. */
+/* The quarter, open to close - exactly the window _reportMetricValues() gives the
+   six cards beside the radar, so a card and its spoke can never disagree about
+   which period they describe. */
 function _radarStatsPair(snapshot){
-  var me=snapshot.monthEnds;
-  return {
-    prior:  (me && me[1] && me[1].stats) ? me[1].stats : snapshot.startStats,
-    latest: (me && me[2] && me[2].stats) ? me[2].stats : snapshot.endStats
-  };
+  return { prior: snapshot.startStats, latest: snapshot.endStats };
 }
 
 function _radarScores(stats){
@@ -224,7 +303,7 @@ function _radarAccessibleText(snapshot){
     def=METRIC_DEFS[i];
     parts.push(def.full+' '+Math.round(getMetricHealthScore(def.key, latest[def.key])));
   }
-  return 'Board balance at month 3. Normalised health out of 100, higher is better: '+
+  return 'Board balance at quarter close. Normalised health out of 100, higher is better: '+
          parts.join(', ')+'.';
 }
 
@@ -236,7 +315,7 @@ function _reportRadarBlock(snapshot){
       '<p class="rep-radar-sub">Further outward is better on every axis.</p>',
       '<canvas id="repBalanceRadar" class="rep-radar" width="360" height="300"',
         ' role="img" aria-label="'+escapeHTML(text)+'">'+escapeHTML(text)+'</canvas>',
-      '<p class="rep-radar-legend">Month 2 (dashed) &middot; Month 3 (solid)</p>',
+      '<p class="rep-radar-legend">Quarter open (dashed) &middot; Quarter close (solid)</p>',
     '</div>'
   ].join('');
 }
@@ -411,7 +490,7 @@ function _fillReportPage1(data){
   for(i=0;i<data.metrics.length;i++) cards.push(_reportMetricCard(data.metrics[i]));
   return [
     '<div class="rep-paper">',
-      _reportPageHead('results'),
+      _reportPageHead('results', data),
       _reportPostureStrip(data.snapshot),
       _reportAlertList(data.snapshot),
       '<div class="rep-position-grid">',
@@ -423,11 +502,36 @@ function _fillReportPage1(data){
   ].join('');
 }
 
+/* Page 3 opens a NEW quarter, and its issue can legitimately read against the
+   outcome on pages 1-2: a Capacity Strain paper warning about unsafe occupancy
+   after an intervention that pulled occupancy below the operating norm is a change
+   in external conditions, not the pack contradicting itself. Nothing on the page
+   said so, so it read as a contradiction. One line says it.
+
+   The fix is the label, never the figures. Adjusting prior-quarter numbers so
+   pages 1-2 agree with the page-3 issue would corrupt a reported outcome to
+   resolve a labelling problem (BPS-001 section 5 rejects it explicitly).
+
+   The fixed prefix is a view string and inserts its entities raw; the authored
+   sentence comes from quarters-data.js and goes through escapeHTML(), which is why
+   it is authored with plain ASCII punctuation.
+
+   Suppressed at the baseline pack: at Q1 there is no committed decision and pages
+   1-2 are an opening position, so "occurs after the outcome reported on pages 1-2"
+   would be untrue in exactly the way this commit exists to remove. */
+function _reportIssueBridge(data){
+  var bridge=data.issue && data.issue.bridge;
+  if(_isBaselinePack(data)) return '';
+  return '<p class="rep-bridge"><b>NEW QUARTER DEVELOPMENT</b> &#8212; occurs after the '+
+    'outcome reported on pages 1&#8211;2.'+(bridge ? (' '+escapeHTML(bridge)) : '')+'</p>';
+}
+
 function _fillReportPage2(data){
   var issue=data.issue;
   return [
     '<div class="rep-paper">',
-      _reportPageHead('issue'),
+      _reportPageHead('issue', data),
+      _reportIssueBridge(data),
       '<div class="rep-alert">'+escapeHTML(issue.tag)+'</div>',
       '<h4 class="rep-issue-title">'+escapeHTML(issue.title)+'</h4>',
       '<div class="rep-grid two">',
@@ -476,7 +580,7 @@ function _fillReportPage3(data){
   }
   return [
     '<div class="rep-paper">',
-      _reportPageHead('options'),
+      _reportPageHead('options', data),
       '<p class="rep-options-intro">Select an option, discuss it as a board, then confirm your decision.</p>',
       '<div class="rep-options">'+html.join('')+'</div>',
       /* Proposal and commit control share a row so the button stays beside
@@ -900,7 +1004,7 @@ function _perfQualityPanel(data){
 function _fillReportPerformance(data){
   return [
     '<div class="rep-paper rep-perf">',
-      _reportPageHead('performance'),
+      _reportPageHead('performance', data),
       _perfTabHeaders(data),
       _perfFinancePanel(data),
       _perfOperationsPanel(data),

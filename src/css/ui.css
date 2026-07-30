@@ -251,6 +251,19 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
 .rep-page-head{display:flex; align-items:center; gap:12px; border-bottom:4px solid #23c4b4; padding-bottom:8px;}
 .rep-page-head span{background:#141b30; color:#e8ecf5; padding:6px 10px; font-weight:bold;}
 .rep-page-head h3{font-size:20px; letter-spacing:3px; text-transform:uppercase;}
+/* The period strip: one line naming which period the page describes, sitting
+   directly under .rep-page-head. Deliberately a label rather than a sentence -
+   page 1's height budget is already spent, so this is 10px on a single line and
+   the negative margin cancels the whole 14px .rep-paper flex gap above it. Net
+   cost to the page is its own line height and nothing else, and it reads as part
+   of the heading rather than as the first item of page content.
+   Text labels, not colour alone: OUTCOME REPORTED / DECISION REQUIRED. */
+.rep-period{
+  display:flex; align-items:baseline; gap:6px; flex-wrap:wrap;
+  margin-top:-14px; font-size:10px; letter-spacing:2px; text-transform:uppercase;
+  color:#42557a;
+}
+.rep-period b{color:#141b30;}
 .rep-grid.two{display:grid; grid-template-columns:1fr 1fr; gap:14px; min-height:0;}
 .rep-paper h4{font-size:12px; letter-spacing:2px; text-transform:uppercase; margin-bottom:8px;}
 .rep-paper p{font-size:12px; line-height:1.5; margin-bottom:8px;}
@@ -310,6 +323,14 @@ label.ck{display:flex; align-items:center; gap:5px; color:var(--dim); letter-spa
   flex:none; width:170px; font-size:10px; letter-spacing:1.5px;
   text-transform:uppercase; color:#42557a;
 }
+/* The new-quarter bridge line, above the alert tag on page 3. Quieter than the
+   tag it sits over: page 3 already carries a tag, a title, three situation
+   paragraphs, a risk canvas and a risk line, so this reads as a margin note. */
+.rep-bridge{
+  font-size:11px !important; line-height:1.4 !important; color:#42557a;
+  border-left:4px solid #98a3bd; padding-left:8px; margin-bottom:0 !important;
+}
+.rep-bridge b{letter-spacing:1px; color:#141b30;}
 .rep-alert{border:2px solid var(--amber); background:#f3e7c8; color:#6e5310; padding:8px 10px; font-size:11px; font-weight:bold; letter-spacing:1px;}
 .rep-issue-title{font-size:24px !important; margin:2px 0 4px;}
 #repIssueChart{width:100%; height:auto; border:2px solid #141b30; image-rendering:auto;}

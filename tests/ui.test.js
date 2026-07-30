@@ -143,7 +143,10 @@ async function driveToYearEnd(page, roles) {
       return {
         title: section.querySelector('.rep-page-head h3').textContent,
         number: section.querySelector('.rep-page-head span').textContent,
-        expectedTitle: descriptor.title,
+        /* `title` is the static default; a descriptor may override it per pack
+           through titleFor(data) - page 1 does, because Q1 has no prior quarter
+           to report. */
+        expectedTitle: descriptor.titleFor ? descriptor.titleFor(REPORT.data) : descriptor.title,
         expectedNumber: (i + 1 < 10 ? '0' : '') + (i + 1)
       };
     }));
@@ -2959,7 +2962,7 @@ async function driveToYearEnd(page, roles) {
     eq(s.secondW, s.firstW, 'radar: canvas.width is identical after close and reopen');
     eq(s.secondH, s.firstH, 'radar: canvas.height is identical after close and reopen');
     ok(s.inkStable, 'radar: reopening redraws identically (the transform does not compound)');
-    eq(s.geometry.seriesCount, 2, 'radar: two series are plotted (month 2 and month 3)');
+    eq(s.geometry.seriesCount, 2, 'radar: two series are plotted (quarter open and quarter close)');
     eq(s.geometry.axisCount, 6, 'radar: one axis per metric');
     ok(s.geometry.firstAxisIsUp, 'radar: the first axis points straight up');
     ok(page._errors.length === 0, 'radar: no console/page errors');
@@ -3261,6 +3264,211 @@ async function driveToYearEnd(page, roles) {
     ok(s.rendered.cellClass.indexOf(s.rendered.expected) >= 0,
        'row agreement: the rendered occupancy cell carries ' + s.rendered.expected);
     ok(page._errors.length === 0, 'row agreement: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BPS-001 X5/X6/X7/X8: TEMPORAL CLARITY ---------------- */
+  console.log('\nBPS-001 X5-X8 temporal clarity:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+
+    /* Read the four page heads plus the page-3 bridge out of a pack opened at
+       whatever quarter the game currently sits on. */
+    const readPack = () => page.evaluate(() => {
+      quarterComplete = true;
+      openReport();
+      const strips = Array.from(document.querySelectorAll('.rep-page .rep-period'))
+        .map(el => el.textContent.replace(/\s+/g, ' ').trim());
+      const out = {
+        quarter: getCurrentQuarterId(),
+        page1Title: document.querySelector('[data-page="0"] .rep-page-head h3').textContent,
+        strips,
+        stripCount: strips.length,
+        bridge: (document.querySelector('[data-page="2"] .rep-bridge') || {}).textContent || '',
+        subtitle: document.querySelector('.rep-sub').textContent,
+        radarLegend: document.querySelector('.rep-radar-legend').textContent,
+        radarLabel: document.getElementById('repBalanceRadar').getAttribute('aria-label'),
+        /* The whole rendered pack, for the Q0 sentinel check. */
+        allHtml: document.getElementById('repRoot').innerHTML
+      };
+      closeReport();
+      return out;
+    });
+
+    await page.evaluate(() => resetGameState());
+    const q1 = await readPack();
+
+    /* Commit Q1 option A (Hire Temporary Staff) and read the Q2 pack, then commit
+       Q2 option B (Expand Virtual Ward) and read the Q3 pack - the exact example
+       BPS-001 gives for the page 1-2 strip. */
+    const commitAndAdvance = optionIndex => page.evaluate(i => {
+      quarterComplete = true;
+      const q = getCurrentQuarterId();
+      confirmBoardDecision(q, getCurrentQuarter().options[i].id);
+      advanceAfterDecision(q);
+    }, optionIndex);
+
+    await commitAndAdvance(0);
+    const q2 = await readPack();
+    await commitAndAdvance(1);
+    const q3 = await readPack();
+
+    /* --- X5: every page names its period --- */
+    eq(q3.stripCount, 4, 'period strip: all four pages carry a period strip');
+    ok(/OUTCOME REPORTED/.test(q3.strips[0]) && /OUTCOME REPORTED/.test(q3.strips[1]),
+       'period strip: pages 1-2 are labelled OUTCOME REPORTED');
+    ok(/DECISION REQUIRED/.test(q3.strips[2]) && /DECISION REQUIRED/.test(q3.strips[3]),
+       'period strip: pages 3-4 are labelled DECISION REQUIRED');
+    ok(/Q2 - EXPAND VIRTUAL WARD/.test(q3.strips[0]),
+       'period strip: the Q3 pack names the prior quarter and its decision (' + q3.strips[0] + ')');
+    ok(/Q3 - MEDIA PRESSURE/.test(q3.strips[2]),
+       'period strip: the Q3 pack names the current decision quarter (' + q3.strips[2] + ')');
+    ok(/Q1 - HIRE TEMPORARY STAFF/.test(q2.strips[0]),
+       'period strip: the Q2 pack names the Q1 decision (' + q2.strips[0] + ')');
+    ok(/Q2 - CAPACITY STRAIN/.test(q2.strips[2]),
+       'period strip: the Q2 pack names Q2 as the decision quarter (' + q2.strips[2] + ')');
+
+    /* --- X7: the Q1 pack does not claim a prior quarter --- */
+    eq(q1.page1Title, 'Opening Board Position', 'page title: Q1 reads "Opening Board Position"');
+    eq(q2.page1Title, 'Prior Quarter Results', 'page title: Q2 reads "Prior Quarter Results"');
+    ok(/BASELINE POSITION/.test(q1.strips[0]) && /NO PRIOR DECISION/.test(q1.strips[0]),
+       'period strip: the Q1 pack states the absence of a prior decision (' + q1.strips[0] + ')');
+    ok(q1.allHtml.indexOf('Q0') < 0, 'period strip: the rendered Q1 pack never contains the Q0 sentinel');
+    /* _warnQuarterFallback only warns, so the error channel would not catch a
+       getQuarterById('Q0') slip - the assertion above is the real guard. This
+       confirms nothing else broke while opening a Q1 pack. */
+    ok(page._errors.length === 0, 'period strip: no console/page errors opening a Q1 pack');
+
+    /* --- X5 point 6: the masthead no longer contradicts pages 1-2 --- */
+    eq(q3.subtitle, 'QUARTERLY BOARD PACK', 'masthead: the subtitle no longer claims DECISION REQUIRED over all four pages');
+
+    /* --- X6: the radar and the cards share one window --- */
+    ok(/Quarter open/.test(q3.radarLegend) && /Quarter close/.test(q3.radarLegend),
+       'radar window: the legend names the quarter, not the months (' + q3.radarLegend + ')');
+    ok(/higher is better/i.test(q3.radarLabel), 'radar window: the aria-label still states the direction');
+    ok(/quarter close/i.test(q3.radarLabel), 'radar window: the aria-label names the quarter close');
+
+    const window6 = await page.evaluate(() => {
+      quarterComplete = true;
+      openReport();
+      const snap = REPORT.data.snapshot;
+      const pair = _radarStatsPair(snap);
+      /* Same window as the cards, by identity of the stats objects the cards read. */
+      const sameWindow = pair.prior === snap.startStats && pair.latest === snap.endStats;
+      /* Sign agreement per metric. Magnitude is NOT comparable: the radar plots
+         getMetricHealthScore(), which is deliberately band-quantised and
+         non-linear in the raw value. Metrics that did not move, or whose health
+         score did not change band-position, are skipped rather than asserted. */
+      const signs = _reportMetricValues().map(m => {
+        const cardDelta = m.cur - m.last;
+        const radarDelta = getMetricHealthScore(m.key, pair.latest[m.key]) -
+                           getMetricHealthScore(m.key, pair.prior[m.key]);
+        return {
+          key: m.key, cardDelta, radarDelta,
+          /* the radar is normalised so higher is always better; a card delta is
+             raw, so an inverted metric flips */
+          agrees: Math.abs(cardDelta) < 0.05 || Math.abs(radarDelta) < 1e-9 ||
+                  ((cardDelta > 0) === m.goodUp) === (radarDelta > 0)
+        };
+      });
+      closeReport();
+      return { sameWindow, signs, moved: signs.filter(x => Math.abs(x.cardDelta) >= 0.05).length };
+    });
+    ok(window6.sameWindow, 'radar window: the radar reads the same start/end stats as the metric cards');
+    ok(window6.moved >= 3, 'radar window: the test quarter moved enough metrics to be worth asserting (' + window6.moved + ')');
+    window6.signs.forEach(x =>
+      ok(x.agrees, 'radar window: ' + x.key + ' card and radar deltas agree in direction'));
+
+    /* --- X8: the page-3 bridge --- */
+    ok(/NEW QUARTER DEVELOPMENT/.test(q3.bridge), 'bridge: page 3 carries the new-quarter bridge line at Q3');
+    ok(/occurs after the outcome reported on pages 1–2\./.test(q3.bridge),
+       'bridge: the fixed line resolves its entities (' + q3.bridge + ')');
+    ok(/regional outlet/i.test(q3.bridge), 'bridge: the Q3 authored sentence renders');
+    ok(/tightened after the last board/i.test(q2.bridge), 'bridge: the Q2 authored sentence renders');
+    eq(q1.bridge, '', 'bridge: the bridge is suppressed at the baseline Q1 pack');
+
+    /* An authored sentence containing an ampersand and an apostrophe must be
+       escaped, not break the markup. */
+    const escaped = await page.evaluate(() => {
+      const q = getQuarterById('Q3');
+      const original = q.issue.bridge;
+      q.issue.bridge = 'Trust & partners\' <b>position</b> changed.';
+      const host = document.createElement('div');
+      host.innerHTML = _reportIssueBridge({
+        issue: q.issue,
+        snapshot: { outcome: { quarterId: 'Q2', optionTitle: 'X' } }
+      });
+      const el = host.querySelector('.rep-bridge');
+      const out = { text: el.textContent, boldCount: el.querySelectorAll('b').length };
+      q.issue.bridge = original;
+      return out;
+    });
+    ok(escaped.text.indexOf("Trust & partners' <b>position</b> changed.") >= 0,
+       'bridge: an authored sentence with & \' < > renders as text (' + escaped.text + ')');
+    eq(escaped.boldCount, 1, 'bridge: authored markup does not inject an element (only the fixed label is bold)');
+
+    ok(page._errors.length === 0, 'temporal clarity: no console/page errors');
+    await page.close();
+  }
+
+  /* ---------------- BPS-001 X5: PAGE 1 HEIGHT AT 1280x720 ----------------
+     .rep-pages is a scroll container and page 1 already overflows it by ~143px
+     at 1280x720 on a committed midyear pack - measured at e2c060f, before this
+     work, where the movement summary was likewise already below the fold. That
+     overflow is not X5's to fix (page 1's layout is untouched here), so what is
+     asserted is that the period strip costs ONE LINE and nothing else: it must
+     not trigger a reflow, and the two elements the existing layout test guards
+     (the radar and the footer) must stay on screen. */
+  console.log('\nBPS-001 X5 page 1 height with the period strip:');
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+    const errors = [];
+    page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+    page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.goto(PAGE_URL);
+    await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
+    await page.waitForTimeout(400);
+    const s = await page.evaluate(() => {
+      resetGameState();
+      for (let i = 0; i < 2; i++) {
+        quarterComplete = true;
+        const q = getCurrentQuarterId();
+        confirmBoardDecision(q, getCurrentQuarter().options[0].id);
+        advanceAfterDecision(q);
+      }
+      quarterComplete = true;
+      openReport();
+      const pages = document.querySelector('.rep-pages');
+      const strip = document.querySelector('[data-page="0"] .rep-period');
+      const radar = document.getElementById('repBalanceRadar');
+      const foot = document.getElementById('repClose');
+      const withStrip = pages.scrollHeight - pages.clientHeight;
+      const stripH = strip ? strip.getBoundingClientRect().height : 0;
+      /* Hide every strip and re-measure: the difference is the strip's true cost
+         to the page, including any flex gap or margin it brings with it. */
+      const strips = document.querySelectorAll('.rep-page .rep-period');
+      for (let i = 0; i < strips.length; i++) strips[i].style.display = 'none';
+      const withoutStrip = pages.scrollHeight - pages.clientHeight;
+      for (let i = 0; i < strips.length; i++) strips[i].style.display = '';
+      const out = {
+        stripH,
+        added: withStrip - withoutStrip,
+        hScroll: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        radarOnScreen: radar.getBoundingClientRect().bottom <= window.innerHeight,
+        footOnScreen: foot.getBoundingClientRect().bottom <= window.innerHeight
+      };
+      closeReport();
+      return out;
+    });
+    ok(s.stripH > 0, 'page 1 height: the period strip has a rendered height');
+    ok(s.stripH <= 16, 'page 1 height: the period strip is one short line (' + s.stripH + 'px)');
+    eq(s.added, s.stripH,
+       'page 1 height: the strip costs exactly its own line and brings no gap of its own');
+    ok(s.hScroll <= 0, 'page 1 height: the document does not scroll horizontally');
+    ok(s.radarOnScreen, 'page 1 height: the radar is still on screen with the strip added');
+    ok(s.footOnScreen, 'page 1 height: the pack footer is still reachable');
+    ok(errors.length === 0, 'page 1 height: no console/page errors');
     await page.close();
   }
 

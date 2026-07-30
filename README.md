@@ -122,9 +122,8 @@ board pack are open, the other shortcuts are suppressed.
 
 ## Tests
 
-Browser-driven UI tests live in `tests/` (Playwright). They cover skip, restart,
-rewind, the fullscreen chrome, and the facilitator-notes modal. The game itself
-stays dependency-free; the tests keep their own `package.json`.
+Browser-driven UI tests live in `tests/` (Playwright). The game itself stays
+dependency-free; the tests keep their own `package.json`.
 
 ```
 cd tests
@@ -132,7 +131,43 @@ npm install
 npm test
 ```
 
+`ui.test.js` is the orchestrator: it launches one Chromium and runs the suites in
+`tests/suites/` against it, sharing a single assertion counter so the reported
+total covers the whole run.
+
+| Suite | Covers |
+|---|---|
+| `general.test.js` | skip/restart/rewind/fullscreen, the facilitator modal, metric semantics, alerts, pregame and objectives, decision safety, year-end scoring, on-map pressure |
+| `board-pack.test.js` | the pack overlay — paging, tabs, snapshots, immutability, health score, radar, gauge renderer, operations tab |
+| `reporting-model.test.js` | `src/data/reporting-model.js` — reconciliation, purity, the two-layer DAG, benchmark bands, the X9/X10 sensitivity enumeration |
+| `finance.test.js` | the I&E schedule, the plan-balance invariant, `goodWhen`/`signedValue`, the reserves movement's sign |
+| `layout.test.js` | rendered geometry at a real viewport, 1280×720 compact baseline |
+
+Run one while iterating (substring match on the suite name):
+
+```
+npm test -- finance
+```
+
+Shared helpers — the page URL, the Chromium resolver, the assertion runner and
+the in-page helpers — live in `tests/harness.js`. Add a suite by dropping a module
+in `tests/suites/` and listing it in `SUITES` in `ui.test.js`.
+
 The Chromium binary is auto-detected; override with `PW_CHROMIUM=/path/to/chrome`.
+
+Every push and pull request runs the same suite in CI
+(`.github/workflows/tests.yml`), so the pass count is checked rather than
+claimed.
+
+## Design Notes
+
+- [`docs/reporting-model-design.md`](docs/reporting-model-design.md) — why the
+  board pack's derived figures are built the way they are: the layering rule,
+  the coefficient calibration and its player-visible basis, the three authored
+  tables, and the I&E line schedule. Read it before changing a coefficient, a
+  clamp, a benchmark band or a driver in `src/data/reporting-model.js`.
+- [`docs/simulation-timeline-design.md`](docs/simulation-timeline-design.md) —
+  the quarter timeline and event model.
 
 ## Design Principles
 

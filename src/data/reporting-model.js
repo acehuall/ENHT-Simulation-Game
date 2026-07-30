@@ -3,22 +3,31 @@
    A pure derivation layer that turns the six board metrics into plausible NHS
    operational figures for the Performance Analysis board-pack page.
 
-   Everything here is DERIVED from a stats snapshot; nothing is a new source of
-   truth and nothing is ever written back. All functions are deterministic:
-   no RNG, no DOM, no reads of live METRIC_CUR. Callers pass a committed stats
-   object (the report snapshot's endStats) plus an optional context describing
-   which quarter/option is being reported so authored overrides can apply.
+   >>> DESIGN REASONING LIVES IN docs/reporting-model-design.md. <<<
+   The comments here state the rules and warn against reversing them; that
+   document holds the measurements, the alternatives tried and rejected, and the
+   defect each rule exists to prevent. Section references below (design notes §N)
+   point into it. If you are about to change a coefficient, a clamp, a band or a
+   driver, read the matching section first - most of the obvious "tidy-ups" here
+   have already been measured and are worse.
+
+   Everything is DERIVED from a stats snapshot; nothing is a new source of truth
+   and nothing is written back. All functions are deterministic: no RNG, no DOM,
+   no reads of live METRIC_CUR.
 
    Loaded AFTER metric-semantics.js (needs getMetricDef / getMetricBand) and
    BEFORE quarters-data.js.
 
-   Direction is stated explicitly per figure (see the 5.3 table in the phase 3
-   prompt) rather than inferred from goodUp - the single biggest risk here is a
-   sign flip, because `waiting` worsens as it rises while everything else
-   improves as it rises.
+   Direction is stated explicitly per figure rather than inferred from goodUp -
+   the single biggest risk here is a sign flip, because `waiting` worsens as it
+   rises while everything else improves as it rises.
 
-   ctx = {quarterId, optionId, outcome, history} - the report snapshot.
-   ctx is optional; when null/undefined, derivation runs with no overrides.
+   ctx = {quarterId, optionId, outcome, history} - the report snapshot. Optional;
+   when null/undefined, derivation runs with no overrides and no authored
+   addends, so every figure sits exactly on its base.
+
+   Figures are calibrated on the PLAYER-VISIBLE snapshot set (the Q1-Q3 closes,
+   768 of the 1024 derivable), never on all four closes - design notes §2.
 --------------------------------------------------------------------------- */
 
 /* Every tunable coefficient and clamp bound lives here so figures can be
@@ -27,201 +36,120 @@
    live from METRIC_DEFS via _start), so at the opening board position every
    derived figure sits exactly on its `base`. */
 var REPORTING_COEFFS = {
-  /* ---------- Finance (X11) ----------
-     THE PLAN-BALANCE INVARIANT. The bases are the plan (budgeted) figures and
-     they balance exactly:
-
-       income      95.0 + 2.5 + 10.5 + 0.0 = 108.0
+  /* ---------- Finance (X11) - design notes §6 ----------
+     PLAN-BALANCE INVARIANT, asserted: the bases balance exactly.
+       income      95.0 + 2.5 + 10.5 + 0.0  = 108.0
        expenditure 68.0 + 6.0 + 12.0 + 22.0 = 108.0
-
-     so at the opening board position every line derives to its own plan, every
-     variance is zero and the surplus is exactly 0. That is what makes the pack's
-     first page readable as "this is the plan, and nothing has happened yet". If
-     you re-pitch any base, re-pitch another to match; the suite asserts it.
-
-     WHY THERE ARE EIGHT LINES AND NOT FIVE. `Other operating income` used to be
-     the balancing plug: the single line with no narrative behind it absorbed
-     every other line's error. Worked through at budget -2, morale 48,
-     waiting 78 - an ordinary bad-but-not-catastrophic Q3 - the old table put
-     every derived line adverse and made the plug a +2.5 FAVOURABLE variance, the
-     largest single positive number on the page, favourable precisely BECAUSE
-     everything else had gone wrong. A board reading down the column found the
-     only good news sitting on the only line nobody could explain.
-     `Other operating income` is now derived like any other line, and the plug
-     moves to an explicit `Reserves & contingency drawdown` - see C.4 on
-     deriveIncomeExpenditure(). */
+     So at the opening position every line derives to its own plan and the
+     surplus is 0. Re-pitch one base and you must re-pitch another. */
   finance: {
     /* £m per quarter. --- INCOME --- */
-    /* Clinical income falls as waiting rises: a gridlocked front door displaces
-       the elective work the tariff is earned on. */
+    /* A gridlocked front door displaces the elective work the tariff is earned on. */
     clinicalIncomeBase: 95,   kInc: 0.15,
-    /* Private patients: small, and the only finance line driven by reputation.
-       Private work follows the trust's public standing more than its capacity,
-       and no other line reads `rep`, so this is the income block's third
-       independent driver. Kept deliberately small in scale - a swing of about
-       +/- 0.5 on a 2.5 plan - because a trust of this size does not fund itself
-       out of private work and a line that moved further would say it did. */
+    /* The only rep-driven finance line. Deliberately small in scale (~+/-0.5 on a
+       2.5 plan): a trust this size does not fund itself out of private work, and
+       a line that moved further would say it did. */
     privateIncomeBase:   2.5, kPrivateRep: 0.02,
-    /* Other operating income - education, training and research income, no
-       longer the plug. Driven by SAFETY, which looks surprising for an income
-       line and is the most defensible driver available: placements and the
-       education tariff that comes with them are what a trust loses when its
-       safety record deteriorates, and trainees are withdrawn by the deanery, not
-       by the market. Reading `waiting` instead would have made it a second view
-       of clinical income; reading `morale` would have made it a second view of
-       agency spend. Safety drives no other finance line. */
+    /* Education, training and research income - no longer the plug. Driven by
+       SAFETY, which looks surprising and is the most defensible driver
+       available; `waiting` or `morale` would each duplicate another line.
+       Design notes §6.4. */
     otherIncomeBase:    10.5, kOtherSafety: 0.04,
-    /* The balancing plug's plan is 0: a trust does not BUDGET to raid its
-       reserves, which is exactly why any drawdown at all is a variance worth
-       colouring. No coefficient - it is not derived, it is solved for. */
+    /* The plug's plan is 0: a trust does not BUDGET to raid its reserves, which
+       is why any movement at all is a variance worth colouring. No coefficient -
+       it is solved for, not derived. */
     drawdownBase:        0,
     /* --- EXPENDITURE --- */
-    /* Pay rises as the financial position and morale fall. */
-    payBase:            68,   kPay: 0.40, kMor: 0.05,
-    /* Bank & agency rises as morale falls. */
-    agencyBase:          6,   kAgency: 0.12,
-    /* Non-pay was ONE line of 34 with a single kNonPay of 0.25. It is now split
-       into drugs (12) and clinical supplies (22), and the budget coefficients
-       are split in the same 12:22 proportion - 0.09 + 0.16 = 0.25 - so the
-       aggregate non-pay response to the budget is byte-unchanged and only its
-       presentation is finer.
-       A PROPORTIONAL SPLIT ALONE WOULD BE WORTHLESS: two lines driven by one
-       coefficient in fixed proportion are one line printed twice, which is the
-       X10 collinearity defect rebuilt inside the finance table. kDrugsActivity
-       is what stops it - the drugs bill follows ACTIVITY as well as the
-       financial position, so the two lines diverge whenever demand and the
-       control total move differently.
-       Activity is measured as `waiting`, NOT as the occupancy anchor, and that
-       is a deliberate refusal of the obvious choice. Occupancy is a percentage
-       whose denominator moves: `Q2:open_escalation_ward` opens 18 beds and so
-       LOWERS occupancy while the patients - and their drugs - are still there.
-       Pointing the drugs bill at occupancy would have opening a ward cut the
-       drugs spend, which is the wrong sign for the right-looking reason. */
+    payBase:            68,   kPay: 0.40, kMor: 0.05,  /* rises as budget/morale fall */
+    agencyBase:          6,   kAgency: 0.12,           /* rises as morale falls */
+    /* Non-pay was ONE line of 34 with a single kNonPay 0.25, now split 12/22 with
+       the coefficient split in the same proportion (0.09 + 0.16 = 0.25), so the
+       aggregate budget response is unchanged.
+       kDrugsActivity IS WHAT MAKES THE SPLIT WORTH ANYTHING - two lines driven by
+       one coefficient in fixed proportion are one line printed twice, i.e. the
+       X10 defect rebuilt in the finance table.
+       Activity is `waiting`, NOT the occupancy anchor: occupancy's denominator
+       moves, so opening escalation beds would CUT the drugs bill. Design
+       notes §6.4. */
     drugsBase:          12,   kDrugsBudget: 0.09, kDrugsActivity: 0.03,
     suppliesBase:       22,   kSuppliesBudget: 0.16
   },
-  /* ---------- Operations (X10) ----------
-     Every figure here used to be `base + k x (waiting - start)`, which made five
-     rows five views of one number: their correlations across the 256 legal
-     decision paths ran 0.83 - 0.997, and two of them could never reach their own
-     `critical` band at all. Each now carries a DISTINCT second driver.
+  /* ---------- Operations (X10) - design notes §4 ----------
+     Every figure used to be `base + k x (waiting - start)`: five rows, one number,
+     correlations 0.83-0.997. Each now carries a DISTINCT second driver.
 
-     EVERY NUMBER QUOTED IN THIS FILE IS MEASURED ON THE PLAYER-VISIBLE SNAPSHOT
-     SET - the Q1, Q2 and Q3 closes, three per path, 768 in all. A board pack
-     reports the outcome of the quarter BEFORE the one it asks about, so the Q4
-     close is derivable but never rendered anywhere. Calibrating on all four closes
-     flatters the model with a fourth quarter of compounding nobody sees. The test
-     suite asserts on the visible set and prints the other for comparison.
+     DO NOT "TIDY" THE ASYMMETRY. Length of stay is deliberately MORALE-LED
+     (kLosMor >= kLosOcc) while handovers are deliberately OCCUPANCY-LED
+     (kHandOcc >> kHs). Morale and safety themselves correlate 0.88, so two
+     figures that are BOTH occupancy-led are two views of occupancy however
+     different their second driver looks on paper. Re-pointing length of stay at
+     occupancy puts the worst operations pair straight back to 0.96.
 
-     TWO COEFFICIENTS THAT LOOK ODD AND ARE NOT. Length of stay is deliberately
-     MORALE-LED (kLosMor >= kLosOcc) while ambulance handovers are deliberately
-     OCCUPANCY-LED (kHandOcc >> kHs). That asymmetry is the whole reason the two
-     rows say different things: morale and safety themselves correlate 0.88 across
-     the legal paths, so two figures that are BOTH occupancy-led are two views of
-     occupancy however different their second driver reads on paper. Re-point
-     length of stay at occupancy (kLosOcc 1.20, kLosMor 0.25) and the worst
-     operations pair goes straight back to 0.96. Do not "tidy" them into one shape.
+     These coefficients carry the trust's GENERAL CONDITION and cannot express
+     what one option does - that is REPORTING_MECHANISMS' job.
 
-     WHAT THE COEFFICIENTS DO NOT DO. They are averages over a whole year of
-     decisions, so they cannot express the mechanism of one option: they made
-     accelerating discharge report a LONGER length of stay than doing nothing. That
-     is REPORTING_MECHANISMS' job, and the split matters when reading the numbers
-     here - these coefficients carry the trust's general condition, the mechanism
-     table carries what a specific decision mechanically does.
-
-     See the layering rule above _deriveAnchors() for why the dependants read
-     `occupancyRaw` and `vacancyRateRaw` rather than the clamped display values. */
+     Dependants read the PRE-CLAMP anchors; see the layering rule above
+     _deriveAnchors(). */
   operational: {
-    /* Layer-1 anchor. Occupancy already traverses its whole clamp and reaches all
-       four authored bands, so kOcc is deliberately left alone. */
+    /* Layer-1 anchor. Already traverses its whole clamp and reaches all four
+       bands, so kOcc is deliberately left alone. */
     occBase:  92,  kOcc:  0.35, occClamp:  [82, 99],       /* % */
-    /* Length of stay: a full hospital discharges slowly (kLosOcc, on the pre-clamp
-       occupancy anchor), and discharge pace depends on having the staff to do the
-       discharging (kLosMor, on falling morale) - which is the larger term, see
-       above. The floor moved from 90 to 85, the one clamp change in this commit:
-       measured at a floor of 90, 12.5% of the visible snapshots sat exactly on it,
-       over the 10% budget, because 10 points of downward headroom against a base
-       of 100 is not enough once the figure has two drivers and a discharge
-       mechanism. At 85 it is 2.1%. `good <= 95` is unaffected, so losPctBands
-       needed no edit. */
+    /* A full hospital discharges slowly (kLosOcc), and discharge pace needs staff
+       to do the discharging (kLosMor - the larger term, see above). Floor moved
+       90 -> 85, the one permitted clamp change: at 90, 12.5% of visible snapshots
+       sat exactly on it against a 10% budget; at 85 it is 2.1%. No band moved. */
     losBase: 100,  kLosOcc: 0.70, kLosMor: 0.70, losClamp: [85, 125], /* index */
-    /* Delayed transfers. BPS-001 X10 asked for kDtoc to be WEAKENED, on the
-       reasoning that a figure the trust does not control should not track the
-       waiting index. It is 0.65 - slightly stronger than the 0.60 it replaced -
-       and the reasoning still holds; the coefficient is not what was carrying the
-       collinearity. Measured: weakening it to the suggested 0.35 leaves the worst
-       operations correlation exactly where it is (0.870) and drops this figure's
-       clamp traversal from 47% to 41%. What broke the collinearity was giving the
-       figure three other drivers, not shrinking this one.
-       The other drivers: REPORTING_EXOGENOUS for community and social-care
-       capacity the trust does not control, REPORTING_MECHANISMS for the discharge
-       interventions that act on it directly, and kDtocBudget for the one general
-       financial lever - beds held per £1m of deficit, because a trust in deficit
-       cannot fund brokerage, transport and packages of care. kDtocBudget is large
-       against a budget range of about 9 points; it has to be, to supply variance
-       that waiting does not.
-       KNOWN SHORTFALL, measured and deliberate: on the visible snapshots this
-       figure traverses 47% of its authored [0, 80] clamp against an acceptance bar
-       of 55%. The only lever that closes the gap is kDtoc, and at 0.80 the
-       occupancy correlation reaches 0.96 - i.e. buying the clamp figure costs the
-       thing this commit exists to fix. The clamp is the widest in the model and
-       three quarters of authored effects cannot span it. What the player actually
-       needs is that the row separates the options in front of them, and it does:
-       the four Q1 options span 16.4 beds on it, the widest of any figure. */
+    /* Delayed transfers. X10 asked for kDtoc to be WEAKENED; it is 0.65, slightly
+       STRONGER than the 0.60 it replaced, because measurement showed the
+       coefficient was not carrying the collinearity - the three other drivers
+       broke it. Weakening to 0.35 leaves correlation at 0.870 and costs 6 points
+       of traversal. kDtocBudget is beds held per £1m of deficit (a trust in
+       deficit cannot fund brokerage, transport and packages of care) and is large
+       on purpose, to supply variance waiting does not.
+       KNOWN SHORTFALL, deliberate: traverses 47% of its [0, 80] clamp against a
+       55% bar, and the assertion says so in its own name. Closing the gap costs
+       the correlation this work exists to fix. Design notes §4. */
     dtocBase: 35,  kDtoc: 0.65, kDtocBudget: 3.20, dtocClamp: [0, 80], /* beds */
-    /* Ambulance handovers: re-pointed from `waiting` to the occupancy anchor so
-       the causal chain reads front door -> beds -> handover, with safety as the
-       second driver as before. Occupancy-led on purpose - see above. */
+    /* Re-pointed from `waiting` to the occupancy anchor so the causal chain reads
+       front door -> beds -> handover. Occupancy-led on purpose - see above. */
     handBase: 20,  kHandOcc: 1.20, kHs: 0.38, handClamp: [0, Infinity], /* count */
-    /* Cancelled operations: electives are cancelled for want of a bed (kCancOcc)
-       or for want of a theatre team (kCancVac, on the pre-clamp vacancy anchor).
-       This is the one cross-tab driver and the reason _deriveAnchors() exists.
-       kCancVac is large because the vacancy rate is a narrow-range figure: at the
-       proportionate-looking 0.60 the theatre-team term supplies about a seventh of
-       the variance, cancelled operations stays a relabelled occupancy, and the
-       worst operations pair measures 0.94. At 2.25 the two terms are comparable and
-       it is 0.87. */
+    /* Cancelled for want of a bed (kCancOcc) or a theatre team (kCancVac). The one
+       cross-tab driver, and the reason _deriveAnchors() exists. kCancVac is large
+       because vacancy is a narrow-range figure: at a proportionate-looking 0.60
+       this stays a relabelled occupancy and the worst pair measures 0.94. */
     cancBase:  8,  kCancOcc: 0.78, kCancVac: 2.25, cancClamp: [0, Infinity] /* count */
   },
-  /* ---------- Workforce (X9) ----------
-     Vacancy, turnover and sickness were all `base + k x (morale - start)`, i.e.
-     one variable in three costumes: their pairwise correlations were exactly
-     1.0000 - identical up to an affine transform - and vacancy and turnover could
-     reach only 2 of their 4 authored bands. Each keeps morale as its primary
-     driver and gains one DISTINCT second driver, and the primary coefficients
-     roughly double, because the old ones traversed only 26-35% of the clamps that
-     were authored for them. Measured on the visible snapshots, the worst workforce
-     pair is now 0.867 and all four figures traverse 58-78%. */
+  /* ---------- Workforce (X9) - design notes §5 ----------
+     Vacancy, turnover and sickness were all `base + k x (morale - start)` - one
+     variable in three costumes, pairwise correlations exactly 1.0000, and two
+     figures reaching only 2 of their 4 bands. Each keeps morale as its primary
+     driver and gains one DISTINCT second driver. Primary coefficients roughly
+     doubled because the old ones traversed only 26-35% of their clamps. Worst
+     workforce pair is now 0.867; all four traverse 58-78%. */
   workforce: {
-    /* Layer-1 anchor. A trust in deficit holds posts vacant, so vacancy control is
-       a financial lever as much as a workforce outcome - and kVacBudget is sized so
-       that it genuinely is one: budget swings over a ~9 point range against
-       morale's ~40, so a coefficient in proportion to the two rates leaves the
-       financial term contributing a fifth of the movement. Measured at the
-       proportionate-looking 0.25, the worst workforce pair is 0.91 and this figure
-       traverses 51% of its clamp; at 1.00 they are 0.87 and 58%. Read it as: a
-       percentage point of vacancy held per £1m of deficit. */
+    /* Layer-1 anchor. A trust in deficit holds posts vacant, so this is a
+       financial lever as much as a workforce outcome. kVacBudget 1.00 reads as a
+       point of vacancy held per £1m of deficit, and is NOT proportionate to the
+       two metrics' ranges on purpose: at a proportionate 0.25 the worst pair is
+       0.91 and traversal 51%; at 1.00, 0.87 and 58%. */
     vacBase:   9,   kVac:  0.33, kVacBudget: 1.00, vacClamp:  [2, 20],   /* % */
     /* Staff leave a trust whose public standing is poor, and it recruits more
-       slowly against the same reputation (kTurnRep). */
+       slowly against the same reputation. NOT coupled to vacancy - that would
+       re-import the collinearity being removed. */
     turnBase: 13,   kTurn: 0.25, kTurnRep: 0.22, turnClamp:  [5, 22],   /* % */
-    /* Sustained escalation-level occupancy drives absence: this is the one
-       workforce figure that should respond to operational pressure (kSickOcc,
-       on the pre-clamp occupancy anchor). */
+    /* The one workforce figure that should respond to operational pressure
+       (kSickOcc, on the pre-clamp occupancy anchor). */
     sickBase:  4.5, kSick: 0.11, kSickOcc: 0.15, sickClamp: [2, 9],    /* % */
-    /* Bank & agency spend is NOT derived here. It is an I&E expenditure line
-       with a plan and a variance, so it is derived once under `finance`. A
-       second copy of the same coefficients was kept in step by comment alone,
-       which is how Finance and Workforce end up reporting different agency
-       spend for the same quarter two clicks apart. */
-    /* The Staff Survey's best-known question is whether staff would be happy for
-       a friend or relative to be treated at the trust, which tracks safety at
-       least as much as morale - so kSurvSafety is the dominant second term (safety
-       moves over a far wider range than reputation, so 0.055 against kRep's 0.012
-       is a much larger share of the figure than the two numbers suggest).
-       kRep is retuned DOWN but must stay strictly positive: reputation moving the
-       survey is authored behaviour and is asserted in the test suite. Most of what
-       kRep used to do was making the survey a second view of turnover. */
+    /* Bank & agency spend is NOT derived here - it is an I&E expenditure line with
+       a plan and a variance, derived once under `finance`. A second copy kept in
+       step by comment alone is how Finance and Workforce end up reporting
+       different agency spend for the same quarter two clicks apart.
+
+       Survey: kSurvSafety is the dominant second term, not kRep. The best-known
+       survey question asks whether staff would be happy for a friend or relative
+       to be treated here, which tracks safety at least as much as morale, and
+       safety moves over a far wider range than reputation. kRep must stay
+       strictly positive - it is authored behaviour and is asserted. */
     survBase:  6.5, kSurv: 0.09, kSurvSafety: 0.07, kRep: 0.02, survClamp: [0, 10] /* index 0..10 */
   },
   quality: {
@@ -233,37 +161,31 @@ var REPORTING_COEFFS = {
   }
 };
 
-/* Reference points a board reads a figure AGAINST, kept separate from
-   REPORTING_COEFFS because these are not tuning constants: retuning a
-   coefficient changes a derived value, whereas changing a benchmark changes what
-   that value MEANS. They are also the figures most likely to be replaced with real
+/* Reference points a board reads a figure AGAINST - design notes §8.
+
+   Kept separate from REPORTING_COEFFS because these are not tuning constants:
+   retuning a coefficient changes a derived VALUE, changing a benchmark changes
+   what that value MEANS. They are also the most likely to be replaced with real
    published values after NHS review, so they need to be findable in one place.
 
-   Bands are authored ASCENDING by `to`, `to` is the INCLUSIVE upper bound of its
-   own band - the same contract METRIC_DEFS uses and getMetricBand() implements -
-   and the final band is open-ended.
+   Bands are authored ASCENDING by `to`; `to` is the INCLUSIVE upper bound of its
+   own band (the contract METRIC_DEFS uses and getMetricBand() implements); the
+   final band is open-ended.
 
-   TONE DIRECTION IS PER FIGURE, and getBenchmarkTone() cannot check it. For a
-   LOWER-IS-BETTER figure (occupancy, length of stay, vacancy, complaints) the
-   tones run good -> neutral -> warn -> critical as the value ascends. For a
-   HIGHER-IS-BETTER figure (harm-free care, FFT, staff survey) they run the other
-   way: critical -> warn -> neutral -> good. Authoring a higher-is-better list in
-   the lower-is-better order produces a page that colours a good figure red and
-   nothing in the code will catch it, so each list states its direction and the
-   band-contract test asserts the tone sequence is monotonic.
+   TONE DIRECTION IS PER FIGURE and getBenchmarkTone() CANNOT CHECK IT. Authoring
+   a higher-is-better list in the lower-is-better order colours a good figure red
+   and nothing in the code will catch it, so each list states its direction and
+   the band-contract test asserts the tone sequence is monotonic.
 
-   Boundaries are pitched against the CLAMPS in REPORTING_COEFFS, not against the
-   narrower range the figures currently traverse, so they still read correctly
-   when the coefficients are widened. Every figure derives to its `base` at the
-   opening board position, and every base sits in the `neutral` band by
-   construction: an ordinary functioning hospital is on its norm, not doing well.
+   Boundaries are pitched against the CLAMPS, not the narrower range the figures
+   currently traverse, so they still read correctly when coefficients widen. Every
+   base sits in `neutral` by construction: an ordinary functioning hospital is on
+   its norm, not doing well.
 
-   `Norm`/`NormLabel` pairs exist only where a panel prints a reference point -
-   currently the occupancy gauge alone. The label is authored, and is deliberately
-   "Trust operating norm" and nothing else. These are fictional coefficients tuned
-   for a training game; wording that implies an external authority ("national
-   standard", "NHS target") would be repeated in a real meeting as though it were
-   one. */
+   The `Norm`/`NormLabel` label is deliberately "Trust operating norm" and nothing
+   else. These are fictional coefficients for a training game; wording implying an
+   external authority ("national standard", "NHS target") would be repeated in a
+   real meeting as though it were one. Asserted. */
 var REPORTING_BENCHMARKS = {
   operational: {
     occupancyNorm:      92,
@@ -378,111 +300,67 @@ var REPORTING_BENCHMARKS = {
   }
 };
 
-/* 'quarterId:optionId' wins over 'quarterId', which wins over the derived
-   value. Longest (most specific) key wins. Keys use real game IDs.
+/* REPLACES the derived value. 'quarterId:optionId' wins over 'quarterId', which
+   wins over the derived value; longest key wins. Design notes §7.
 
-   Nothing is authored here at present, and that is deliberate. Q2 used to author
-   `dtocBeds: 41` with `Q2:discharge_partnership` authoring 38, which is the
-   collinearity defect in miniature: at Q2 the headline figure read 41 whatever
-   the board did, unless it did one specific thing, and then it read 38 - a
-   figure that cannot respond to a decision teaches the group that the decision
-   did not matter. The same authorial intent (Q2 is the quarter when discharge
-   pressure lands) is now expressed as an ADDITIVE term in REPORTING_EXOGENOUS,
-   which shifts the figure without freezing it.
+   Nothing is authored here at present, deliberately: Q2's old hard `dtocBeds: 41`
+   made the headline figure of the Capacity Strain quarter read 41 whatever the
+   board did. That intent is now an ADDITIVE term in REPORTING_EXOGENOUS, which
+   shifts the figure without freezing it.
 
-   The mechanism stays: a hard override is the right tool for a one-off authored
-   fact that the model has no business deriving. Use it for that, not to pin a
-   figure the player is meant to be able to move. */
+   A hard override is the right tool for a one-off authored fact the model has no
+   business deriving. Use it for that, not to pin a figure the player is meant to
+   be able to move. A figure must never be authored BOTH here and in an additive
+   table - the override wins silently and the addend becomes dead code. Asserted. */
 var REPORTING_OVERRIDES = {};
 
-/* Exogenous pressure the trust does not control, ADDED to the derived figure,
-   keyed by the quarter whose OUTCOME is being reported (ctx.quarterId on the
-   report snapshot). Delayed transfers depend far more on community and
-   social-care capacity than on anything the board decided, and modelling them as
-   a pure function of the waiting index made them the fourth identical view of
-   one number.
+/* ADDS to the derived figure. Exogenous pressure the trust does not control,
+   keyed by the quarter whose OUTCOME is being reported. Design notes §7.
 
-   KEYED BY QUARTER ONLY, never by 'quarter:option'. That is the whole point: an
-   option-keyed exogenous term would be the board's own decision wearing a
-   disguise. If a figure should respond to the decision, give it a driver, not an
-   entry here.
+   KEYED BY QUARTER ONLY, never 'quarter:option'. That is the whole point: an
+   option-keyed exogenous term would be the board's own decision in disguise. If a
+   figure should respond to the decision, give it a driver, not an entry here.
 
-   ctx.quarterId on a report snapshot is the quarter whose decision was
-   committed, so Q2's pressure lands in the Q2 OUTCOME - which is what the Q3
-   pack's pages 1-2 report, the same pack whose page 3 carries the Q2 bridge
-   line. A missing key, and a null ctx, both resolve to 0, so the opening board
-   position still derives to base exactly.
+   A missing key and a null ctx both resolve to 0, so the opening board position
+   still derives to base exactly. Being additive rather than an override is what
+   lets the board still move the figure in the quarter the pressure lands.
 
-   Each value is the pressure sitting on the trust DURING that quarter, not a
-   running total: Q3's is small because Q3's external event is a reputational one,
-   not a discharge one.
+   VALUES TRACK THE AUTHORED `bridge` PROSE in quarters-data.js - CHANGE ONE,
+   CHANGE THE OTHER. Each is the pressure sitting on the trust DURING that
+   quarter, not a running total, which is why Q3's is small: its external event is
+   a reputational one, not a discharge one.
 
-   These values are authored to match the `bridge` prose already written on each
-   quarter in quarters-data.js - if you change one, change the other:
-     Q2 "Regional discharge pathways tightened after the last board, so beds now
-         clear more slowly than they did earlier in the year."
-     Q3 "A regional outlet began reporting on the trust after the last board..."
-         (a reputational quarter, so only a small residual discharge drag)
-     Q4 "A cold snap was forecast after the last board, so winter demand now sits
-         on top of the position above."
-
-   THE Q4 ENTRY IS NEVER RENDERED. A pack reports the previous quarter's outcome,
-   so the last close a player sees derived is Q3's; the Q4 term is authored for
-   completeness and for whatever later reports the Q4 outcome, and it is excluded
-   from the model's calibration for exactly that reason. An earlier revision of
-   this commit had it at +26 and leaned on it for a clamp-utilisation figure, which
-   was a number nobody could ever see. It is now sized from the bridge prose alone.
-
-   Every entry is additive, so the board can still move the figure in the quarter
-   the pressure lands - that is the difference between this and the hard Q2
-   override it replaced, which pinned the figure to 41 whatever the board did. */
+   THE Q4 ENTRY IS NEVER RENDERED (a pack reports the previous quarter's outcome)
+   and is excluded from calibration. An earlier revision had it at +26 and leaned
+   on it for a clamp figure nobody could ever see; it is now sized from the prose
+   alone. */
 var REPORTING_EXOGENOUS = {
   'Q2': { operational: { dtocBeds: 14 } },
   'Q3': { operational: { dtocBeds:  3 } },
   'Q4': { operational: { dtocBeds: 14 } }
 };
 
-/* The DIRECT MECHANISM of a board decision, ADDED to the derived figure, keyed by
-   'quarterId:optionId'. The exact mirror of REPORTING_EXOGENOUS above: that table
-   is what the trust does not control, this one is what it just chose to do.
+/* ADDS to the derived figure. The DIRECT MECHANISM of a board decision, keyed by
+   'quarterId:optionId' - the exact mirror of REPORTING_EXOGENOUS above: that
+   table is what the trust does not control, this is what it just chose to do.
+   Design notes §7 carries the three measured defects that made it necessary.
 
-   WHY THIS TABLE EXISTS. Without it every consequence of every option has to
-   travel through the six global coefficients on waiting, morale, budget, safety
-   and reputation - and those are averages over a whole year of decisions, so they
-   cannot express a mechanism. Three measured examples from before it existed:
-
-     - Accelerating discharge planning (Q1 C) REPORTED A LONGER length of stay
-       than doing nothing (102.5 against 100.0), because the option costs morale
-       and length of stay reads morale. The one thing the option does by
-       definition is shorten stays.
-     - Funding the discharge partnership (Q2 D) beat expanding the virtual ward
-       (Q2 B) on delayed transfers by 0.02 beds. The option that exists to unblock
-       medically fit patients was indistinguishable from one that does not.
-     - Deferring capital (Q4 D) reported FEWER delayed transfers than extending the
-       discharge lounge (Q4 B), because deferring capital improves the budget and
-       delayed transfers read the budget.
-
-   Coefficients cannot fix any of those: they are the wrong shape. A per-option
-   term is.
+   WHY IT CANNOT BE COEFFICIENTS. Global coefficients are averages over a year of
+   decisions, so they cannot express one option's mechanism. Before this table,
+   accelerating discharge REPORTED A LONGER length of stay than doing nothing,
+   because the option costs morale and length of stay reads morale.
 
    THE RULE FOR AUTHORING ONE. Only the direct, mechanical, in-quarter consequence
-   of the intervention itself goes here - the thing that is true by definition of
-   what the option does. The DURABLE consequences are already carried by the
-   option's authored `effects` on the board metrics (rapid discharge costs 15
-   points of safety, and every figure that reads safety picks that up in this
-   quarter and every quarter after). So:
+   of the intervention itself - the thing true by definition of what the option
+   does. Durable consequences are already carried by the option's `effects`.
 
-     effects  = what the decision does to the trust, and keeps doing
-     here     = what the decision mechanically does to THIS figure, this quarter
-     exogenous= what happened to the trust that the board did not choose
+     effects   = what the decision does to the trust, and keeps doing
+     here      = what it mechanically does to THIS figure, this quarter
+     exogenous = what happened that the board did not choose
 
-   Keyed by quarter AND option, because unlike the exogenous table the whole point
-   is that it is the board's choice. An option with no unambiguous direct
-   mechanism gets no entry - all four Q3 options are communications decisions and
-   author nothing here, which is correct and is not an oversight.
-
-   Signs read in the figure's own direction: negative is a lower figure, which for
-   every figure in this table except cancelledOps is an improvement. */
+   An option with no unambiguous direct mechanism gets NO ENTRY. Signs read in the
+   figure's own direction: negative is a lower figure, which for everything here
+   except cancelledOps is an improvement. */
 var REPORTING_MECHANISMS = {
   /* Q1 - infection pressure */
   /* "Hire temporary agency staff to cover sickness and stabilise ward staffing":
@@ -738,26 +616,18 @@ function _bandsFor(namespace, id){
 
 /* A single non-finance display row, honouring the phase-1 band-{tone} contract.
 
-   TONE COMES FROM THE FIGURE, judged against its own authored benchmark bands -
-   never from the source metric's band. Taking it from the source made the colour
-   decorative: every row in a tab shared one tone whatever its own value, so at
-   Q3 all five Operations rows were amber together while never events read amber
-   at ZERO, its best attainable result. The same band-{tone} class is diagnostic
-   on the Finance variance cells, so a decorative use of it teaches the player
-   that the colour means nothing.
+   TONE COMES FROM THE FIGURE, judged against its own authored benchmark bands,
+   never from the source metric's band - design notes §8. Taking it from the
+   source made the colour decorative: every row in a tab shared one tone whatever
+   its own value, and never events read amber at ZERO, their best attainable
+   result. An earlier comment here argued the opposite; that held only while
+   occupancy was the sole figure with an authored benchmark.
 
-   An earlier comment here argued the opposite - that a figure whose only meaning
-   is "this is what waiting pressure does to the wards" should inherit the source
-   band, leaving the Operations tab two tone sources on purpose. That held while
-   occupancy was the only figure with an authored benchmark. Every derived figure
-   now has one, so there is one tone source and it is the figure's own.
+   A figure with no authored bands renders `neutral` rather than falling back to
+   the source metric.
 
-   A figure with no authored bands renders `neutral` (getBenchmarkTone's
-   behaviour on a null list) rather than falling back to the source metric.
-
-   `sourceKey`/`sourceValue` are retained: they still drive `commentary`, which is
-   deliberately unchanged. The Operations narrative is about waiting pressure and
-   reads correctly for all five rows. This changes colour, not prose. */
+   `sourceKey`/`sourceValue` still drive `commentary`, which is deliberately
+   unchanged - this changes colour, not prose. */
 function _row(id, label, value, unit, sourceKey, sourceValue, namespace){
   return {
     id:         id,
@@ -812,22 +682,21 @@ function _ieLine(id, label, plan, actual, kind, opts){
    so an authored figure can never break reconciliation. The balancing line is
    not itself overridable - the reconciliation requirement always wins.
 
-   WHICH LINE CARRIES THE PLUG IS THE WHOLE POINT (X11). It used to be
-   `Other operating income`, and putting the plug on an operational income line
-   made that line dishonest in a specific, repeatable way: it absorbed the sum of
-   everybody else's adverse variances and reported the total back as good news.
-   See the worked example above REPORTING_COEFFS.finance.
+   WHICH LINE CARRIES THE PLUG IS THE WHOLE POINT (X11) - design notes §6.2. It
+   used to be `Other operating income`, which made that line dishonest in a
+   specific, repeatable way: it absorbed the sum of everybody else's adverse
+   variances and reported the total back as good news, so the only line with no
+   narrative behind it carried the best number on the page.
 
-   The plug is now `Reserves & contingency drawdown`, and it is the one line on
-   an NHS I&E where a board EXPECTS elasticity: a worsening position is covered
-   by drawing on reserves, a strong one transfers back. It is authored
-   goodWhen:'down' - it sits in the income block because that is which side of
-   the reconciliation it falls on, but a larger drawdown is a worse result, not a
-   better one. That combination is the reason _ieLine() carries `goodWhen` at all.
+   The plug is now `Reserves movement`, the one line on an NHS I&E where a board
+   EXPECTS elasticity. It is authored goodWhen:'down' - it sits in the income
+   block because that is which side of the reconciliation it falls on, but a
+   larger movement is a worse result. That combination is the reason _ieLine()
+   carries `goodWhen` at all.
 
-   Every other income line is now derived and defensible, so nothing on the page
-   is favourable merely because something else went wrong.
-   -> {lines:[{id,label,kind,goodWhen,budget,actual,variance,tone}],
+   Every other income line is derived and defensible, so nothing on the page is
+   favourable merely because something else went wrong.
+   -> {lines:[{id,label,kind,goodWhen,signedValue,budget,actual,variance,tone}],
        surplus, totalIncome, totalExpenditure} */
 function deriveIncomeExpenditure(stats, ctx){
   var c = REPORTING_COEFFS.finance;
@@ -892,11 +761,7 @@ function deriveIncomeExpenditure(stats, ctx){
 }
 
 /* ---------- THE LAYERING RULE - read this before adding a derived figure ----
-   Layer-1 anchor figures. Both deriveOperational() and deriveWorkforce() need
-   these, and each depends only on the six source metrics, so this helper can be
-   called from either without recursion. THIS IS THE ONLY LAYER-1 FUNCTION.
-
-   The rule, stated as a rule:
+   Design notes §3. THIS IS THE ONLY LAYER-1 FUNCTION.
 
      LAYER 1 (this function) reads SOURCE METRICS ONLY.
        occupancy   <- waiting
@@ -905,29 +770,25 @@ function deriveIncomeExpenditure(stats, ctx){
        anchors returned from here, and may NEVER read another layer-2 figure.
      deriveOperational() must never call deriveWorkforce(), and the reverse.
 
-   The rule exists because the model genuinely wants cross-tab drivers -
-   cancelledOps <- occupancy + vacancyRate, sickness <- morale + occupancy - and
-   taken literally that is deriveOperational() calling deriveWorkforce() calling
-   deriveOperational(), i.e. a stack overflow the first time the pack is opened.
-   If a new figure needs another figure as a driver it is a layer-2 figure and it
-   reads the anchor from here. Do not promote a second function to layer 1, and do
-   not cross-call the two derive functions.
+   The rule exists because the model wants cross-tab drivers - cancelledOps <-
+   occupancy + vacancyRate, sickness <- morale + occupancy - and taken literally
+   that is the two derive functions calling each other, i.e. a stack overflow the
+   first time the pack is opened. A new figure needing another figure as a driver
+   is a layer-2 figure that reads the anchor from here. Do not promote a second
+   function to layer 1, and do not cross-call the two derive functions.
 
    TWO DETAILS THAT ARE LOAD-BEARING:
 
    (a) The anchors resolve through _field() HERE, before any dependant reads them,
-       so an authored override on `occupancy` reaches losPct, ambulanceHandover
-       and cancelledOps too. Without that, an author can put the pack into a state
-       where the occupancy row says 97% while length of stay is derived as though
-       it were 91%.
+       so an authored override on `occupancy` reaches its dependants too -
+       otherwise the pack can show occupancy 97% beside a length of stay derived
+       as though it were 91%.
 
-   (b) Dependants read the PRE-CLAMP anchor (`occupancyRaw` / `vacancyRateRaw`).
-       Occupancy saturates its [82, 99] clamp on a material share of legal paths -
-       it is the one figure at 100% clamp utilisation, by design. If the dependants
-       read the clamped value, then on every high-pressure path they would all
-       flatten at the same instant, which is exactly the lockstep this layer exists
-       to remove, rebuilt at the top of the range. The clamped value is for
-       display; the raw value is what the rest of the model is made of.
+   (b) Dependants read the PRE-CLAMP anchor. Occupancy saturates its [82, 99]
+       clamp by design; if dependants read the clamped value they would all
+       flatten at the same instant on high-pressure paths, rebuilding the very
+       lockstep this layer removes. Clamped is for display, raw is what the rest
+       of the model is made of.
 
    -> {occupancy, occupancyRaw, vacancyRate, vacancyRateRaw} */
 function _deriveAnchors(stats, ctx){

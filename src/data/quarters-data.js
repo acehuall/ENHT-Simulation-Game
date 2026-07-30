@@ -83,6 +83,13 @@ var QUARTERS = [
         'Opening capacity helps flow, but every extra bed requires staff, support services and governance grip.',
         'The board must choose whether to create capacity, shift demand, or accept operational deterioration.'
       ],
+      /* Optional. One authored sentence naming what changed OUTSIDE the trust
+         since the reported outcome, rendered under the fixed new-quarter bridge
+         line on page 3. It says why the issue can read against pages 1-2; it
+         never hints at the right option and never quantifies what is coming.
+         Authored data, so plain ASCII punctuation only - it goes through
+         escapeHTML(). Omit it where there is nothing real to say. */
+      bridge:'Regional discharge pathways tightened after the last board, so beds now clear more slowly than they did earlier in the year.',
       risk:'Bed occupancy is projected to stay above safe operating levels unless discharge delays improve.',
       chart:{actual:[82,86,88,91,94,96], projected:[98,101,104,107,110,112], capacity:92, maxV:120}
     },
@@ -151,6 +158,7 @@ var QUARTERS = [
         'Staff want visible support from the board, but any response must be accurate and deliverable.',
         'Silence may avoid a difficult interview today while making tomorrow harder.'
       ],
+      bridge:'A regional outlet began reporting on the trust after the last board, so the position above is now being read in public.',
       risk:'Public confidence and staff morale are both at risk if the trust appears evasive.',
       chart:{actual:[18,22,29,36,42,49], projected:[55,62,70,79,88,96], capacity:65, maxV:100}
     },
@@ -219,6 +227,7 @@ var QUARTERS = [
         'The board can spend to protect resilience, trade off planned care, or lean on regional partners.',
         'The final decision will shape the year-end position shown to governors.'
       ],
+      bridge:'A cold snap was forecast after the last board, so winter demand now sits on top of the position above.',
       risk:'Without a resilience response, the trust risks a visible year-end deterioration in safety and morale.',
       chart:{actual:[44,50,57,63,71,79], projected:[86,94,101,109,116,124], capacity:96, maxV:130}
     },
@@ -282,6 +291,23 @@ function _warnQuarterFallback(msg){
   if(_quarterWarned[msg]) return;
   _quarterWarned[msg]=true;
   if(typeof console!=='undefined' && console.warn) console.warn('[quarters-data] '+msg);
+}
+
+/* Does this id name a real playable quarter? A non-warning predicate, for
+   callers that have to tell "no quarter" apart from "unknown quarter".
+
+   getQuarterIndexById() deliberately warns and falls back to index 0, which is
+   right for playback but wrong here: DEFAULT_OUTCOME carries the sentinel
+   quarterId 'Q0' before any decision is committed, so asking it for 'Q0' logs a
+   warning and hands back Q1 - which would label the opening baseline as the
+   outcome of a prior Q1 decision. Gate on this instead of comparing against the
+   sentinel, so the check survives a rename of it.
+   -> boolean */
+function hasQuarter(quarterId){
+  for(var i=0;i<QUARTERS.length;i++){
+    if(QUARTERS[i].id===quarterId) return true;
+  }
+  return false;
 }
 
 function getQuarterIndexById(quarterId){

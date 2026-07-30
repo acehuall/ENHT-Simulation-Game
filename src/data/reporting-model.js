@@ -46,7 +46,11 @@ var REPORTING_COEFFS = {
     vacBase:   9,   kVac:  0.12, vacClamp:  [2, 20],   /* % */
     turnBase: 13,   kTurn: 0.14, turnClamp: [5, 22],   /* % */
     sickBase:  4.5, kSick: 0.06, sickClamp: [2, 9],    /* % */
-    agencyBase: 6,  kAgency: 0.12,                      /* £m, mirrors finance agency */
+    /* Bank & agency spend is NOT derived here. It is an I&E expenditure line
+       with a plan and a variance, so it is derived once under `finance`. A
+       second copy of the same coefficients was kept in step by comment alone,
+       which is how Finance and Workforce end up reporting different agency
+       spend for the same quarter two clicks apart. */
     survBase:  6.5, kSurv: 0.04, kRep: 0.03, survClamp: [0, 10] /* index 0..10 */
   },
   quality: {
@@ -64,23 +68,141 @@ var REPORTING_COEFFS = {
    that value MEANS. They are also the figures most likely to be replaced with real
    published values after NHS review, so they need to be findable in one place.
 
-   Bands are authored ASCENDING by value with DESCENDING tone, and `to` is the
-   INCLUSIVE upper bound of its own band - the same contract METRIC_DEFS uses and
-   getMetricBand() implements. The final band is open-ended.
+   Bands are authored ASCENDING by `to`, `to` is the INCLUSIVE upper bound of its
+   own band - the same contract METRIC_DEFS uses and getMetricBand() implements -
+   and the final band is open-ended.
 
-   The label is authored, and is deliberately "Trust operating norm" and nothing
-   else. These are fictional coefficients tuned for a training game; wording that
-   implies an external authority ("national standard", "NHS target") would be
-   repeated in a real meeting as though it were one. */
+   TONE DIRECTION IS PER FIGURE, and getBenchmarkTone() cannot check it. For a
+   LOWER-IS-BETTER figure (occupancy, length of stay, vacancy, complaints) the
+   tones run good -> neutral -> warn -> critical as the value ascends. For a
+   HIGHER-IS-BETTER figure (harm-free care, FFT, staff survey) they run the other
+   way: critical -> warn -> neutral -> good. Authoring a higher-is-better list in
+   the lower-is-better order produces a page that colours a good figure red and
+   nothing in the code will catch it, so each list states its direction and the
+   band-contract test asserts the tone sequence is monotonic.
+
+   Boundaries are pitched against the CLAMPS in REPORTING_COEFFS, not against the
+   narrower range the figures currently traverse, so they still read correctly
+   when the coefficients are widened. Every figure derives to its `base` at the
+   opening board position, and every base sits in the `neutral` band by
+   construction: an ordinary functioning hospital is on its norm, not doing well.
+
+   `Norm`/`NormLabel` pairs exist only where a panel prints a reference point -
+   currently the occupancy gauge alone. The label is authored, and is deliberately
+   "Trust operating norm" and nothing else. These are fictional coefficients tuned
+   for a training game; wording that implies an external authority ("national
+   standard", "NHS target") would be repeated in a real meeting as though it were
+   one. */
 var REPORTING_BENCHMARKS = {
   operational: {
     occupancyNorm:      92,
     occupancyNormLabel: 'Trust operating norm',
+    /* lower is better - occClamp [82, 99], base 92 */
     occupancyBands: [
       { to: 89,       tone: 'good'     },
       { to: 92,       tone: 'neutral'  },
       { to: 95,       tone: 'warn'     },
       { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - losClamp [90, 125], base 100 */
+    losPctBands: [
+      { to: 95,       tone: 'good'     },
+      { to: 102,      tone: 'neutral'  },
+      { to: 112,      tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - dtocClamp [0, 80], base 35 */
+    dtocBedsBands: [
+      { to: 25,       tone: 'good'     },
+      { to: 38,       tone: 'neutral'  },
+      { to: 55,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - handClamp [0, Infinity), base 20 */
+    ambulanceHandoverBands: [
+      { to: 12,       tone: 'good'     },
+      { to: 24,       tone: 'neutral'  },
+      { to: 40,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - cancClamp [0, Infinity), base 8 */
+    cancelledOpsBands: [
+      { to: 5,        tone: 'good'     },
+      { to: 10,       tone: 'neutral'  },
+      { to: 18,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ]
+  },
+  workforce: {
+    /* lower is better - vacClamp [2, 20], base 9 */
+    vacancyRateBands: [
+      { to: 6,        tone: 'good'     },
+      { to: 10,       tone: 'neutral'  },
+      { to: 14,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - turnClamp [5, 22], base 13 */
+    turnoverBands: [
+      { to: 10,       tone: 'good'     },
+      { to: 14,       tone: 'neutral'  },
+      { to: 18,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better - sickClamp [2, 9], base 4.5 */
+    sicknessBands: [
+      { to: 3.5,      tone: 'good'     },
+      { to: 5,        tone: 'neutral'  },
+      { to: 6.5,      tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* HIGHER is better - survClamp [0, 10], base 6.5. Tones ascend. */
+    surveyScoreBands: [
+      { to: 4.5,      tone: 'critical' },
+      { to: 6,        tone: 'warn'     },
+      { to: 7.5,      tone: 'neutral'  },
+      { to: Infinity, tone: 'good'     }
+    ]
+  },
+  quality: {
+    /* lower is better - incClamp [0, Infinity), base 6 */
+    incidentsBands: [
+      { to: 4,        tone: 'good'     },
+      { to: 7,        tone: 'neutral'  },
+      { to: 12,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* lower is better, and a STEPPED INTEGER count rather than a continuous
+       figure, so it is banded on the integers themselves: zero never events is
+       the best attainable result and must read `good`, not amber. This is the
+       one figure where inheriting the source metric's band was not merely
+       uninformative but visibly wrong - at safety 48 the count is 0 and the pack
+       flagged it. There is no `neutral` band on purpose: one never event is not
+       a middling position. */
+    neverEventsBands: [
+      { to: 0,        tone: 'good'     },
+      { to: 1,        tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* HIGHER is better - harmClamp [88, 99.5], base 96. Tones ascend. */
+    harmFreePctBands: [
+      { to: 92,       tone: 'critical' },
+      { to: 95,       tone: 'warn'     },
+      { to: 97.5,     tone: 'neutral'  },
+      { to: Infinity, tone: 'good'     }
+    ],
+    /* lower is better - compClamp [0, Infinity), base 18 */
+    complaintsBands: [
+      { to: 12,       tone: 'good'     },
+      { to: 20,       tone: 'neutral'  },
+      { to: 32,       tone: 'warn'     },
+      { to: Infinity, tone: 'critical' }
+    ],
+    /* HIGHER is better - fftClamp [40, 99], base 90. Tones ascend. */
+    fftScoreBands: [
+      { to: 70,       tone: 'critical' },
+      { to: 85,       tone: 'warn'     },
+      { to: 92,       tone: 'neutral'  },
+      { to: Infinity, tone: 'good'     }
     ]
   }
 };
@@ -251,25 +373,46 @@ function getBenchmarkTone(bands, value){
   return bands[bands.length - 1].tone;
 }
 
-/* A single non-finance display row. tone comes from the source metric's band,
-   honouring the phase-1 band-{tone} contract.
+/* The authored benchmark band list for a derived figure, addressed by the
+   namespace it lives under in REPORTING_COEFFS plus its row id:
+   ('operational', 'losPct') -> REPORTING_BENCHMARKS.operational.losPctBands.
+   -> band list | null when a figure has no authored benchmark. */
+function _bandsFor(namespace, id){
+  var ns = REPORTING_BENCHMARKS[namespace];
+  var bands = ns ? ns[id + 'Bands'] : null;
+  return bands || null;
+}
 
-   `toneOverride` is for figures that have a benchmark of their own. Without it
-   the tone comes from the source metric's band, which is right for a figure
-   whose only meaning is "this is what waiting pressure does to the wards".
-   Occupancy is the one operational figure with an authored norm, so it is judged
-   against that norm instead - and must be, because the gauge above the list
-   already is. That leaves the Operations tab with two tone sources on purpose;
-   do not "tidy" it back to one. */
-function _row(id, label, value, unit, sourceKey, sourceValue, toneOverride){
-  var band = getMetricBand(sourceKey, sourceValue);
+/* A single non-finance display row, honouring the phase-1 band-{tone} contract.
+
+   TONE COMES FROM THE FIGURE, judged against its own authored benchmark bands -
+   never from the source metric's band. Taking it from the source made the colour
+   decorative: every row in a tab shared one tone whatever its own value, so at
+   Q3 all five Operations rows were amber together while never events read amber
+   at ZERO, its best attainable result. The same band-{tone} class is diagnostic
+   on the Finance variance cells, so a decorative use of it teaches the player
+   that the colour means nothing.
+
+   An earlier comment here argued the opposite - that a figure whose only meaning
+   is "this is what waiting pressure does to the wards" should inherit the source
+   band, leaving the Operations tab two tone sources on purpose. That held while
+   occupancy was the only figure with an authored benchmark. Every derived figure
+   now has one, so there is one tone source and it is the figure's own.
+
+   A figure with no authored bands renders `neutral` (getBenchmarkTone's
+   behaviour on a null list) rather than falling back to the source metric.
+
+   `sourceKey`/`sourceValue` are retained: they still drive `commentary`, which is
+   deliberately unchanged. The Operations narrative is about waiting pressure and
+   reads correctly for all five rows. This changes colour, not prose. */
+function _row(id, label, value, unit, sourceKey, sourceValue, namespace){
   return {
     id:         id,
     label:      label,
     value:      value,
     unit:       unit,
     source:     sourceKey,
-    tone:       toneOverride || (band ? band.tone : 'neutral'),
+    tone:       getBenchmarkTone(_bandsFor(namespace, id), value),
     commentary: _commentary(sourceKey, sourceValue)
   };
 }
@@ -382,9 +525,10 @@ function getOccupancyGauge(stats, ctx){
   };
 }
 
-/* Workforce. Vacancy/turnover/sickness/agency worsen as `morale` falls; the
-   staff survey improves with `morale` and `rep`.
-   -> {vacancyRate, turnover, sickness, bankAgencySpend, surveyScore} */
+/* Workforce. Vacancy/turnover/sickness worsen as `morale` falls; the staff
+   survey improves with `morale` and `rep`. Bank & agency spend is a finance
+   figure and lives on the I&E, not here - see REPORTING_COEFFS.workforce.
+   -> {vacancyRate, turnover, sickness, surveyScore} */
 function deriveWorkforce(stats, ctx){
   var c = REPORTING_COEFFS.workforce;
   var m = _start('morale') - stats.morale;
@@ -395,8 +539,6 @@ function deriveWorkforce(stats, ctx){
       _clamp(c.turnBase + c.kTurn * m, c.turnClamp[0], c.turnClamp[1]), ctx),
     sickness:        _field('workforce', 'sickness',
       _clamp(c.sickBase + c.kSick * m, c.sickClamp[0], c.sickClamp[1]), ctx),
-    bankAgencySpend: _field('workforce', 'bankAgencySpend',
-      c.agencyBase + c.kAgency * m, ctx),
     surveyScore:     _field('workforce', 'surveyScore',
       _clamp(c.survBase + c.kSurv * (stats.morale - _start('morale')) +
                           c.kRep * (stats.rep - _start('rep')),
@@ -427,16 +569,15 @@ function deriveQuality(stats, ctx){
   };
 }
 
-/* Nearest authored threshold to a value, with signed distance.
+/* Nearest authored threshold to a value, with signed distance. Thin wrapper over
+   describeThresholdDistance() in metric-semantics.js so the selection rule and
+   the distance exist once; callers that need to know which SIDE of the threshold
+   the value is on should call that directly, because the sign of `distance` does
+   not answer it for an 'above' threshold.
    -> {threshold, distance} | null when the metric has no thresholds. */
 function getNearestThreshold(key, value){
-  var def = getMetricDef(key), best = null, bestGap = Infinity, i, gap;
-  if(!def || !def.thresholds || !def.thresholds.length) return null;
-  for(i = 0; i < def.thresholds.length; i++){
-    gap = Math.abs(def.thresholds[i].at - value);
-    if(gap < bestGap){ bestGap = gap; best = def.thresholds[i]; }
-  }
-  return best ? { threshold: best, distance: best.at - value } : null;
+  var d = describeThresholdDistance(key, value);
+  return d ? { threshold: d.threshold, distance: d.distance } : null;
 }
 
 /* Section lookup used by the view. -> {id, title, rows, commentary} | null for
@@ -460,16 +601,14 @@ function getReportSection(id, stats, ctx){
     case 'operations': {
       s = deriveOperational(stats, ctx);
       rows = [
-        /* Occupancy alone takes its tone from its own benchmark, so the row and
-           the gauge above it can never show different tones for the same figure.
-           Commentary stays keyed to `waiting`: the narrative line is about
-           waiting pressure and reads correctly for all five rows. */
-        _row('occupancy',         'Bed occupancy',                s.occupancy,         '%',       'waiting', stats.waiting,
-             getBenchmarkTone(REPORTING_BENCHMARKS.operational.occupancyBands, s.occupancy)),
-        _row('losPct',            'Length of stay index',         s.losPct,            '',        'waiting', stats.waiting),
-        _row('dtocBeds',          'Delayed transfers of care',    s.dtocBeds,          ' beds',   'waiting', stats.waiting),
-        _row('ambulanceHandover', 'Ambulance handovers >30min',   s.ambulanceHandover, '',        'waiting', stats.waiting),
-        _row('cancelledOps',      'Cancelled operations',         s.cancelledOps,      '',        'waiting', stats.waiting)
+        /* Occupancy resolves to REPORTING_BENCHMARKS.operational.occupancyBands,
+           the same list getOccupancyGauge() reads, so the row and the gauge above
+           it can never show different tones for the same figure. */
+        _row('occupancy',         'Bed occupancy',                s.occupancy,         '%',       'waiting', stats.waiting, 'operational'),
+        _row('losPct',            'Length of stay index',         s.losPct,            '',        'waiting', stats.waiting, 'operational'),
+        _row('dtocBeds',          'Delayed transfers of care',    s.dtocBeds,          ' beds',   'waiting', stats.waiting, 'operational'),
+        _row('ambulanceHandover', 'Ambulance handovers >30min',   s.ambulanceHandover, '',        'waiting', stats.waiting, 'operational'),
+        _row('cancelledOps',      'Cancelled operations',         s.cancelledOps,      '',        'waiting', stats.waiting, 'operational')
       ];
       return { id: id, title: 'Operational Performance', rows: rows,
                commentary: _commentary('waiting', stats.waiting) };
@@ -477,11 +616,10 @@ function getReportSection(id, stats, ctx){
     case 'workforce': {
       s = deriveWorkforce(stats, ctx);
       rows = [
-        _row('vacancyRate',     'Vacancy rate',       s.vacancyRate,     '%',      'morale', stats.morale),
-        _row('turnover',        'Staff turnover',     s.turnover,        '%',      'morale', stats.morale),
-        _row('sickness',        'Sickness absence',   s.sickness,        '%',      'morale', stats.morale),
-        _row('bankAgencySpend', 'Bank & agency spend', s.bankAgencySpend, '£m',    'morale', stats.morale),
-        _row('surveyScore',     'Staff survey score', s.surveyScore,     ' / 10',  'morale', stats.morale)
+        _row('vacancyRate',     'Vacancy rate',       s.vacancyRate,     '%',      'morale', stats.morale, 'workforce'),
+        _row('turnover',        'Staff turnover',     s.turnover,        '%',      'morale', stats.morale, 'workforce'),
+        _row('sickness',        'Sickness absence',   s.sickness,        '%',      'morale', stats.morale, 'workforce'),
+        _row('surveyScore',     'Staff survey score', s.surveyScore,     ' / 10',  'morale', stats.morale, 'workforce')
       ];
       return { id: id, title: 'Workforce', rows: rows,
                commentary: _commentary('morale', stats.morale) };
@@ -489,11 +627,11 @@ function getReportSection(id, stats, ctx){
     case 'quality': {
       s = deriveQuality(stats, ctx);
       rows = [
-        _row('incidents',   'Moderate-harm incidents', s.incidents,   ' / month', 'safety', stats.safety),
-        _row('neverEvents', 'Never events',            s.neverEvents, '',         'safety', stats.safety),
-        _row('harmFreePct', 'Harm-free care',          s.harmFreePct, '%',        'safety', stats.safety),
-        _row('complaints',  'Complaints',              s.complaints,  '',         'patsat', stats.patsat),
-        _row('fftScore',    'FFT recommend',           s.fftScore,    '%',        'patsat', stats.patsat)
+        _row('incidents',   'Moderate-harm incidents', s.incidents,   ' / month', 'safety', stats.safety, 'quality'),
+        _row('neverEvents', 'Never events',            s.neverEvents, '',         'safety', stats.safety, 'quality'),
+        _row('harmFreePct', 'Harm-free care',          s.harmFreePct, '%',        'safety', stats.safety, 'quality'),
+        _row('complaints',  'Complaints',              s.complaints,  '',         'patsat', stats.patsat, 'quality'),
+        _row('fftScore',    'FFT recommend',           s.fftScore,    '%',        'patsat', stats.patsat, 'quality')
       ];
       return { id: id, title: 'Quality & Safety', rows: rows,
                commentary: _commentary('safety', stats.safety) };

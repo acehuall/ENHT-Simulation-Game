@@ -738,9 +738,18 @@ function _perfTabHeaders(data){
    never be misread: income is a plain positive amount, expenditure carries an
    explicit minus. Colour (fin-income / fin-expenditure) and the panel's layout
    divider each carry the same distinction independently, so the split survives
-   greyscale and colour-blindness. */
-function _finMoney(v, kind){
+   greyscale and colour-blindness.
+
+   `signed` OPTS A LINE OUT OF THAT CONVENTION and shows its true arithmetic
+   sign. Exactly one line needs it - Reserves movement - because it is the only
+   figure that legitimately runs both ways: positive is drawn FROM reserves,
+   negative is returned TO them. Under the convention alone, Math.abs() erased
+   that distinction and a £4.6m transfer back into reserves printed identically
+   to a £4.6m raid on them. The convention still governs every other line, which
+   is why this is a per-line opt-out and not a change to the rule. */
+function _finMoney(v, kind, signed){
   var mag='&pound;'+Math.abs(v).toFixed(1)+'m';
+  if(signed) return (v<-0.05?'&#8722;':'')+mag;
   return kind==='expenditure' ? '&#8722;'+mag : mag;
 }
 
@@ -764,11 +773,15 @@ function _finVariance(r){
   return sign+'&pound;'+Math.abs(fav).toFixed(1)+'m';
 }
 
+/* The Actual column honours r.signedValue; the Plan column never does, because a
+   plan of 0.0 has no sign to carry and printing one would imply a budgeted
+   direction the trust did not budget for. */
 function _finRow(r){
   var cls=r.kind==='income'?'fin-income':'fin-expenditure';
-  return '<tr class="rep-fin-line '+cls+'"><td>'+escapeHTML(r.label)+'</td>'+
+  return '<tr class="rep-fin-line '+cls+'" data-fin-line="'+escapeHTML(r.id)+'">'+
+    '<td>'+escapeHTML(r.label)+'</td>'+
     '<td>'+_finMoney(r.plan,r.kind)+'</td>'+
-    '<td>'+_finMoney(r.value,r.kind)+'</td>'+
+    '<td>'+_finMoney(r.value,r.kind,r.signedValue)+'</td>'+
     '<td class="rep-perf-cell band-'+r.tone+'">'+_finVariance(r)+'</td></tr>';
 }
 
@@ -850,6 +863,23 @@ function _perfFinancePanel(data){
     '<td></td></tr>') : '';
   var bandLine='BUDGET '+(band?escapeHTML(band.label):'')+
     (near?(' &middot; '+near):'');
+  /* Every other line on the page is an amount the trust earned or spent.
+     Reserves movement is not - it is solved for, so that income less
+     expenditure comes to the reported position. A player who reads it as a
+     ninth operational line will wonder why the trust "earned" money for doing
+     badly, so the page says what it is, in the direction the figure is
+     currently pointing rather than as an abstract rule. */
+  var reserves=null;
+  for(i=0;i<section.rows.length;i++){ if(section.rows[i].id==='drawdown') reserves=section.rows[i]; }
+  var reservesNote=reserves ? ('Reserves movement is the balancing figure: whatever makes income less '+
+    'expenditure come to the reported position. '+
+    (reserves.value>0.05
+      ? 'It is positive this quarter, so '+_finMoney(reserves.value,'income',true)+
+        ' was drawn from reserves to cover the position.'
+      : (reserves.value<-0.05
+        ? 'It is negative this quarter, so &pound;'+Math.abs(reserves.value).toFixed(1)+
+          'm was returned to reserves.'
+        : 'It is nil this quarter, so reserves were neither drawn on nor added to.'))) : '';
   return [
     '<div class="rep-perf-panel" role="tabpanel" id="perfPanelFinance" aria-labelledby="perfTabFinance"'+
       (_perfTab===0?'':' hidden')+' data-perf-panel="0">',
@@ -864,6 +894,7 @@ function _perfFinancePanel(data){
         '</tbody>',
         '<tfoot>'+netRow+'</tfoot>',
       '</table>',
+      (reservesNote?('<p class="rep-perf-note rep-fin-reserves-note">'+reservesNote+'</p>'):''),
       '<p class="rep-perf-note">'+escapeHTML(section.commentary)+'</p>',
     '</div>'
   ].join('');

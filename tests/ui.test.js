@@ -36,6 +36,27 @@ function eq(actual, expected, name) {
   ok(actual === expected, name + ' (expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual) + ')');
 }
 
+/* In-page helpers installed on every test page. Kept here rather than redefined
+   per block so a fix reaches every caller.
+
+   parseMoney PRESERVES THE SIGN, and that is the whole reason it exists. Blocks
+   used to parse a money cell with .replace(/[^0-9.]/g,''), which strips every
+   non-numeric character - so "-£4.6m" came back as 4.6, and an assertion that a
+   transfer INTO reserves rendered negative would have passed on a cell showing
+   the opposite. The view emits U+2212 MINUS SIGN rather than an ASCII hyphen,
+   so both are normalised before the number is matched. */
+const IN_PAGE_HELPERS = () => {
+  window.parseMoney = el => {
+    const t = String(el && el.textContent != null ? el.textContent : el).replace(/−/g, '-');
+    const m = t.match(/\d+(\.\d+)?/);
+    if (!m) return NaN;
+    /* The sign is looked for BEFORE the first digit rather than immediately
+       before it: the currency symbol sits between them ("-£8.0m"), so a
+       /-?\d+/ match would silently drop the minus and return 8. */
+    return (/-/.test(t.slice(0, m.index)) ? -1 : 1) * parseFloat(m[0]);
+  };
+};
+
 async function freshPage(browser) {
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   const errors = [];
@@ -43,6 +64,7 @@ async function freshPage(browser) {
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   // Auto-confirm the restart prompt so restart is testable non-interactively.
   await page.addInitScript(() => { window.confirm = () => true; });
+  await page.addInitScript(IN_PAGE_HELPERS);
   await page.goto(PAGE_URL);
   await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
   page._errors = errors;
@@ -4513,6 +4535,103 @@ async function driveToYearEnd(page, roles) {
     await page.close();
   }
 
+  /* ---------------- BPS-001 X11: RESERVES MOVEMENT RENDERS ITS TRUE SIGN -------
+     The line runs both ways, so the label names neither direction and the Actual
+     column opts out of the income block's "always positive" sign convention via
+     signedValue. Both directions are driven through the REAL panel - a model-only
+     assertion would not have caught _finMoney()'s Math.abs(). */
+  console.log('\nBPS-001 X11 reserves movement sign:');
+  {
+    const page = await freshPage(browser);
+    await page.waitForTimeout(150);
+    /* openReport() rebuilds REPORT.data from live state, so the injected stats
+       go in AFTER it and page 1 is rebuilt explicitly - setPerfTab() only
+       toggles visibility and would leave the panel's HTML a render behind. */
+    const render = async stats => page.evaluate(injected => {
+      quarterComplete = true;
+      openReport();
+      Object.assign(REPORT.data.snapshot.endStats, injected);
+      REPORT.page = 1;
+      const sec = document.querySelector('[data-page="1"]');
+      sec.innerHTML = REPORT_PAGES[1].build(REPORT.data);
+      if (REPORT_PAGES[1].afterRender) REPORT_PAGES[1].afterRender(REPORT.data);
+      _syncReportPages();
+      setPerfTab(0);
+      const tr = document.querySelector('.rep-fin-line[data-fin-line="drawdown"]');
+      const tds = Array.from(tr.querySelectorAll('td'));
+      const ie = deriveIncomeExpenditure(REPORT.data.snapshot.endStats,
+                                         _snapshotCtx(REPORT.data.snapshot));
+      const line = ie.lines.find(l => l.id === 'drawdown');
+      const note = document.querySelector('.rep-fin-reserves-note');
+      return {
+        label: tds[0].textContent,
+        actualText: tds[2].textContent,
+        actualParsed: parseMoney(tds[2]),
+        modelValue: line.actual,
+        signedValue: line.signedValue,
+        tone: line.tone,
+        hasMinusGlyph: /−/.test(tds[2].textContent),
+        note: note ? note.textContent : ''
+      };
+    }, stats);
+
+    /* A strong position: operating income comfortably covers spend, so the
+       balancing figure is a transfer BACK into reserves - a negative movement. */
+    const back = await render({ budget: -0.6, waiting: 40, morale: 70, safety: 78, rep: 74 });
+    /* A strained position: the deficit is covered by drawing ON reserves. */
+    const drawn = await render({ budget: -2, waiting: 78, morale: 48, safety: 50, rep: 50 });
+
+    eq(back.label, 'Reserves movement',
+      'X11 sign: the line is labelled for both directions, not just drawdowns');
+    ok(back.signedValue === true, 'X11 sign: the reserves line is flagged signedValue');
+
+    /* negative movement - money returned to reserves */
+    ok(back.modelValue < -0.05,
+      'X11 sign: the strong position produces a negative reserves movement (' +
+      back.modelValue.toFixed(2) + ')');
+    ok(back.hasMinusGlyph,
+      'X11 sign: a negative reserves movement renders a visible minus sign (got "' + back.actualText + '")');
+    ok(back.actualParsed < 0 && Math.abs(back.actualParsed - back.modelValue) < 0.06,
+      'X11 sign: the rendered negative figure parses back to the model value (' +
+      back.actualParsed + ' vs ' + back.modelValue.toFixed(2) + ')');
+    eq(back.tone, 'good', 'X11 sign: a transfer back into reserves still reads good');
+    ok(/returned to reserves/.test(back.note),
+      'X11 sign: the note explains a negative movement as money returned to reserves');
+
+    /* positive movement - money drawn from reserves */
+    ok(drawn.modelValue > 0.05,
+      'X11 sign: the strained position produces a positive reserves drawdown (' +
+      drawn.modelValue.toFixed(2) + ')');
+    ok(!drawn.hasMinusGlyph,
+      'X11 sign: a positive drawdown renders with no minus sign (got "' + drawn.actualText + '")');
+    ok(drawn.actualParsed > 0 && Math.abs(drawn.actualParsed - drawn.modelValue) < 0.06,
+      'X11 sign: the rendered positive figure parses back to the model value (' +
+      drawn.actualParsed + ' vs ' + drawn.modelValue.toFixed(2) + ')');
+    eq(drawn.tone, 'warn', 'X11 sign: a drawdown still reads warn');
+    ok(/drawn from reserves/.test(drawn.note),
+      'X11 sign: the note explains a positive movement as money drawn from reserves');
+    ok(/balancing figure/.test(drawn.note),
+      'X11 sign: the note tells the player the line is the balancing figure, not a ninth operational line');
+
+    /* the two directions must not render identically - the defect being fixed */
+    ok(back.actualText !== drawn.actualText,
+      'X11 sign: the two directions render differently (was identical under Math.abs)');
+
+    /* the sign convention still governs every OTHER line */
+    const others = await page.evaluate(() => {
+      const rows = Array.from(document.querySelectorAll('.rep-fin-line'));
+      return rows.filter(tr => tr.getAttribute('data-fin-line') !== 'drawdown')
+        .map(tr => ({ id: tr.getAttribute('data-fin-line'),
+                      text: tr.querySelectorAll('td')[2].textContent,
+                      income: /fin-income/.test(tr.className) }));
+    });
+    ok(others.every(r => r.income ? !/−/.test(r.text) : /−/.test(r.text)),
+      'X11 sign: every other line still follows the block sign convention (income plain, expenditure minus)');
+
+    ok(page._errors.length === 0, 'X11 sign: no console/page errors');
+    await page.close();
+  }
+
   /* ---------------- BOARD PACK PHASE 5: GAUGE GEOMETRY + RENDERER ---------------- */
   console.log('\nboard pack phase 5 gauge renderer:');
   {
@@ -4771,6 +4890,7 @@ async function driveToYearEnd(page, roles) {
     const errors = [];
     page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
+    await page.addInitScript(IN_PAGE_HELPERS);
     await page.goto(PAGE_URL);
     await page.waitForFunction(() => window.simulationStarted === true, { timeout: 5000 });
     await page.waitForTimeout(400);
@@ -4790,7 +4910,7 @@ async function driveToYearEnd(page, roles) {
       const ie = deriveIncomeExpenditure(REPORT.data.snapshot.endStats,
                                          _snapshotCtx(REPORT.data.snapshot));
       const subtotals = Array.from(document.querySelectorAll('.rep-fin-subtotal'));
-      const money = td => parseFloat(td.textContent.replace(/[^0-9.]/g, ''));
+      const money = el => parseMoney(el);
       const cellsOf = tr => Array.from(tr.querySelectorAll('td'));
 
       return {
@@ -4806,8 +4926,13 @@ async function driveToYearEnd(page, roles) {
         /* the rendered subtotals against the model's totals, at the 1 dp the
            view prints - a subtotal that disagrees with the block above it is
            worse than no subtotal at all */
-        incomeMatches: Math.abs(money(cellsOf(subtotals[0])[2]) - ie.totalIncome) < 0.05,
-        spendMatches: Math.abs(money(cellsOf(subtotals[1])[2]) - ie.totalExpenditure) < 0.05,
+        /* Signs are compared, not just magnitudes. The expenditure block prints
+           its figures negative by convention, so the subtotal must parse to
+           MINUS totalExpenditure - asserting the convention rather than
+           abs()-ing it away, which is the same erasure signedValue exists to
+           undo one row above. */
+        incomeMatches: Math.abs(money(cellsOf(subtotals[0])[2]) - ie.totalIncome) < 0.06,
+        spendMatches: Math.abs(money(cellsOf(subtotals[1])[2]) + ie.totalExpenditure) < 0.06,
         /* and the subtotal's variance cell is deliberately empty - see
            _finSubtotal() on why a mixed-direction block must not be coloured */
         incomeVarianceBlank: cellsOf(subtotals[0])[3].textContent.trim() === '',

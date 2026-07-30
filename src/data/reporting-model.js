@@ -782,29 +782,24 @@ function _defaultGoodWhen(kind){
 /* One I&E line. `budget` is the plan (budgeted) figure, `actual` the derived
    position, `variance` = actual - plan.
 
-   `kind` IS GROUPING AND ARITHMETIC ONLY: which block the line renders in and
-   which side of the reconciliation it sits on. `goodWhen` IS DIRECTION OF GOOD,
-   and is what the tone and the displayed variance sign read.
+   Three separate concepts, which were one field until X11 (see
+   docs/reporting-model-design.md §4):
+     `kind`        GROUPING AND ARITHMETIC - which block the line renders in and
+                   which side of the reconciliation it sits on.
+     `goodWhen`    DIRECTION OF GOOD - what the tone and the variance sign read.
+     `signedValue` DISPLAY SIGN - whether the Actual column shows the figure's
+                   true arithmetic sign instead of the block's sign convention.
 
-   These were one field, and the split is not tidying. `kind` was doing four
-   unrelated jobs - favourability here, grouping in the totalling loop below,
-   the CSS class in _finRow(), and the display sign in _finMoney() - and the two
-   favourability jobs are the ones that break when a line's block and its
-   direction of good disagree. That happens the moment the balancing plug moves
-   to a reserves drawdown: an INCOME-block line where a LARGER actual is worse,
-   because it means the trust covered its position by spending its reserves.
-   Under the old rule that line rendered green while the reserves drained, which
-   is the decorative-colour failure X3 was raised to remove, reintroduced on the
-   one line that most needs to be read correctly.
-
-   Everything except tone and variance sign still reads `kind`, so grouping,
-   totalling, the CSS classes and the display sign are all unchanged. */
-function _ieLine(id, label, plan, actual, kind, goodWhen){
-  goodWhen = goodWhen || _defaultGoodWhen(kind);
+   `opts` is optional and carries the last two; both default from `kind`, so the
+   seven conventional lines pass nothing. */
+function _ieLine(id, label, plan, actual, kind, opts){
+  opts = opts || {};
+  var goodWhen = opts.goodWhen || _defaultGoodWhen(kind);
   var variance = actual - plan;
   var favourable = goodWhen === 'up' ? variance >= 0 : variance <= 0;
   var tone = Math.abs(variance) < 0.05 ? 'neutral' : (favourable ? 'good' : 'warn');
-  return { id: id, label: label, kind: kind, goodWhen: goodWhen, budget: plan,
+  return { id: id, label: label, kind: kind, goodWhen: goodWhen,
+           signedValue: opts.signedValue === true, budget: plan,
            actual: actual, variance: variance, tone: tone };
 }
 
@@ -874,7 +869,13 @@ function deriveIncomeExpenditure(stats, ctx){
     _ieLine('clinicalIncome', 'Clinical income',                   c.clinicalIncomeBase, clinical,        'income'),
     _ieLine('privateIncome',  'Private patients',                  c.privateIncomeBase,  privatePatients, 'income'),
     _ieLine('otherIncome',    'Other operating income',            c.otherIncomeBase,    otherIncome,     'income'),
-    _ieLine('drawdown',       'Reserves & contingency drawdown',   c.drawdownBase,       drawdown,        'income', 'down'),
+    /* Signed on purpose, and the only line that is. It runs BOTH ways - drawn
+       from reserves when the position needs covering, returned to them when it
+       does not - so a label naming one direction ("drawdown") described half of
+       what the line does, and the block's income sign convention hid the other
+       half by printing a transfer back as a plain positive amount. */
+    _ieLine('drawdown',       'Reserves movement',                 c.drawdownBase,       drawdown,        'income',
+            { goodWhen: 'down', signedValue: true }),
     _ieLine('paySpend',       'Pay expenditure',                   c.payBase,            pay,             'expenditure'),
     _ieLine('agencySpend',    'Bank & agency',                     c.agencyBase,         agency,          'expenditure'),
     _ieLine('drugsSpend',     'Drugs',                             c.drugsBase,          drugs,           'expenditure'),
@@ -1103,8 +1104,8 @@ function getReportSection(id, stats, ctx){
       for(var i = 0; i < ie.lines.length; i++){
         var l = ie.lines[i];
         rows.push({ id: l.id, label: l.label, kind: l.kind, goodWhen: l.goodWhen,
-                    plan: l.budget, value: l.actual, variance: l.variance,
-                    unit: '£m', tone: l.tone });
+                    signedValue: l.signedValue, plan: l.budget, value: l.actual,
+                    variance: l.variance, unit: '£m', tone: l.tone });
       }
       rows.push({ id: 'surplus', label: 'Surplus / (deficit)', value: ie.surplus,
                   unit: '£m', tone: getMetricBand('budget', stats.budget).tone });

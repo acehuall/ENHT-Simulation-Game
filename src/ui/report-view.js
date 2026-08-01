@@ -153,7 +153,13 @@ var REPORT_PAGES=[
    would warn and hand back Q1, labelling the Q1 baseline as a prior Q1 decision.
    The string 'Q0' must never reach the page. */
 function _isBaselinePack(data){
-  var outcome=data && data.snapshot ? data.snapshot.outcome : null;
+  return _isBaselineSnapshot(data ? data.snapshot : null);
+}
+
+/* Same test against a bare snapshot, for the radar builders - they are handed a
+   snapshot rather than the whole pack data object. */
+function _isBaselineSnapshot(snapshot){
+  var outcome=snapshot ? snapshot.outcome : null;
   if(!outcome) return true;
   if(typeof hasQuarter==='function') return !hasQuarter(outcome.quarterId);
   return outcome.quarterId===DEFAULT_OUTCOME.quarterId;
@@ -263,9 +269,24 @@ function _reportShell(data){
    waiting-pressure chart plots OPEN/M1/M2/M3 and declares its own time base, and
    the month closes stay in the snapshot. The window is now labelled once for the
    whole page by the X5 period strip, which is why no second caption is added to
-   the metric grid. */
+   the metric grid.
+
+   The opening ring IS the previous quarter's close - startStats is the position
+   the Trust held before this quarter's decision was applied - so the chart is
+   read as "where the board was, and where it is now". The legend says exactly
+   that rather than "quarter open", which described the same numbers in a frame
+   nobody reads them in. */
+
+/* Previous quarter in inert grey, this quarter in the live teal. Both carry a
+   translucent fill: the grey area is what makes a CONTRACTION legible - without
+   it a spoke that fell shows only as a teal line sitting inside a thin dashed
+   one, which reads as noise at this size. Alphas are kept low enough that the
+   overlap (most of the chart, most quarters) does not turn muddy, and the two
+   are still told apart by line style alone for greyscale printing. */
 var RADAR_PRIOR_COLOR='#98a3bd';
+var RADAR_PRIOR_FILL='rgba(152,163,189,.22)';
 var RADAR_LATEST_COLOR='#23c4b4';
+var RADAR_LATEST_FILL='rgba(35,196,180,.16)';
 
 /* Band tones as PAPER inks, matching .rep-perf-cell.band-{tone} in ui.css exactly.
    Canvas cannot read a CSS class, so the two lists have to be kept in step by
@@ -278,7 +299,8 @@ var REPORT_TONE_INK = {
 
 /* The quarter, open to close - exactly the window _reportMetricValues() gives the
    six cards beside the radar, so a card and its spoke can never disagree about
-   which period they describe. */
+   which period they describe. `prior` is the position carried in from the
+   previous quarter's close; `latest` is where this quarter ended. */
 function _radarStatsPair(snapshot){
   return { prior: snapshot.startStats, latest: snapshot.endStats };
 }
@@ -292,19 +314,63 @@ function _radarScores(stats){
   return out;
 }
 
+/* Health-score movement for one metric, in words. The scores are normalised so
+   higher is always better, which is why this says improved/weakened rather than
+   up/down - "waiting times up 4" would be read as a deterioration on a scale
+   where it is an improvement. Below a point of movement it says unchanged: the
+   card grid beside it applies the same floor (MOVEMENT_EPSILON). */
+function _radarScoreMovement(key, prior, latest){
+  var d=getMetricHealthScore(key, latest)-getMetricHealthScore(key, prior);
+  if(Math.abs(d)<1) return 'unchanged on the previous quarter';
+  return (d>0?'improved ':'weakened ')+Math.round(Math.abs(d))+' on the previous quarter';
+}
+
 /* The six cards beside the radar already carry every figure as text, so to a
    screen-reader user the chart is duplication - that is the correct
    relationship for a decorative-but-informative graphic, and the reason this
    is a one-line summary rather than a data table. The same string is used as
-   the <canvas> fallback content for the no-canvas case. */
+   the <canvas> fallback content for the no-canvas case.
+
+   The movement clause is what makes the text carry the SAME information as the
+   chart: once the grey ring is the point of the graphic, a list of closing
+   scores alone is a smaller reading of it than a sighted user gets. At the
+   baseline pack there is no previous quarter, so the clause is dropped rather
+   than printed as six "unchanged"s. */
 function _radarAccessibleText(snapshot){
-  var latest=_radarStatsPair(snapshot).latest, parts=[], i, def;
+  var pair=_radarStatsPair(snapshot);
+  var baseline=_isBaselineSnapshot(snapshot);
+  var parts=[], i, def, score;
   for(i=0;i<METRIC_DEFS.length;i++){
     def=METRIC_DEFS[i];
-    parts.push(def.full+' '+Math.round(getMetricHealthScore(def.key, latest[def.key])));
+    score=Math.round(getMetricHealthScore(def.key, pair.latest[def.key]));
+    parts.push(def.full+' '+score+
+      (baseline ? '' : ', '+_radarScoreMovement(def.key, pair.prior[def.key], pair.latest[def.key])));
   }
-  return 'Board balance at quarter close. Normalised health out of 100, higher is better: '+
-         parts.join(', ')+'.';
+  if(baseline){
+    return 'Board balance at the opening position, before any decision. '+
+           'Normalised health out of 100, higher is better: '+parts.join(', ')+'.';
+  }
+  return 'Board balance at quarter close, compared with the previous quarter close. '+
+         'Normalised health out of 100, higher is better: '+parts.join(', ')+'.';
+}
+
+/* The legend is the only thing naming which ring is which, so it states the
+   colour as well as the line style - "grey" is what a player looking at the
+   chart actually has to match, and the line style is what survives a greyscale
+   print of the pack. At the baseline pack there is no second ring to name, and
+   saying so is what stops a single shape reading as a chart that failed to draw
+   its comparison.
+
+   One <span> per key, not one run of text with separators: the strip is
+   narrower than the two keys laid end to end at most window widths, and a
+   single string wraps mid-key ("... THIS QUARTER / (SOLID)"). As flex items
+   each key wraps whole. */
+function _radarLegendText(snapshot){
+  if(_isBaselineSnapshot(snapshot)){
+    return '<span>Opening position &mdash; no previous quarter to compare</span>';
+  }
+  return '<span>Grey dashed &mdash; previous quarter</span>'+
+         '<span>Teal solid &mdash; this quarter</span>';
 }
 
 function _reportRadarBlock(snapshot){
@@ -315,7 +381,7 @@ function _reportRadarBlock(snapshot){
       '<p class="rep-radar-sub">Further outward is better on every axis.</p>',
       '<canvas id="repBalanceRadar" class="rep-radar" width="360" height="300"',
         ' role="img" aria-label="'+escapeHTML(text)+'">'+escapeHTML(text)+'</canvas>',
-      '<p class="rep-radar-legend">Quarter open (dashed) &middot; Quarter close (solid)</p>',
+      '<p class="rep-radar-legend">'+_radarLegendText(snapshot)+'</p>',
     '</div>'
   ].join('');
 }
@@ -325,17 +391,22 @@ function _drawBoardBalanceRadar(data){
   /* Guarded so a failure to load report-infographics.js costs the chart, not
      the whole board pack. */
   if(!cv || typeof renderRadarChart!=='function') return null;
-  var pair=_radarStatsPair(data.snapshot), axes=[], i;
+  var pair=_radarStatsPair(data.snapshot), axes=[], series=[], i;
   for(i=0;i<METRIC_DEFS.length;i++) axes.push({label:METRIC_DEFS[i].label});
-  return renderRadarChart(cv, {
-    axes:axes,
-    series:[
-      {values:_radarScores(pair.prior),  color:RADAR_PRIOR_COLOR,  width:1,
-       dash:[4,3], marker:'hollow', markerSize:3},
-      {values:_radarScores(pair.latest), color:RADAR_LATEST_COLOR, width:2,
-       fill:'rgba(35,196,180,.18)', marker:'filled', markerSize:3}
-    ]
-  });
+
+  /* The baseline pack has no previous quarter: startStats and endStats are the
+     same numbers, so a second series would draw a grey dashed fringe exactly
+     under the teal one and invite the reading that the quarter moved by a
+     hair. One ring, and a legend that says why. */
+  if(!_isBaselineSnapshot(data.snapshot)){
+    series.push({values:_radarScores(pair.prior), color:RADAR_PRIOR_COLOR, width:1.5,
+                 dash:[4,3], fill:RADAR_PRIOR_FILL, marker:'hollow', markerSize:3});
+  }
+  /* Drawn last, so the live position reads over the grey wherever they cross. */
+  series.push({values:_radarScores(pair.latest), color:RADAR_LATEST_COLOR, width:2,
+               fill:RADAR_LATEST_FILL, marker:'filled', markerSize:3});
+
+  return renderRadarChart(cv, {axes:axes, series:series});
 }
 
 /* The standing position, in one line, read before anything else on the page.

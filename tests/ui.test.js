@@ -3033,6 +3033,14 @@ async function driveToYearEnd(page, roles) {
         return { alpha, nonBg, w: cv.width, h: cv.height };
       };
 
+      /* The opening pack first: it has no previous quarter, so it must plot one
+         ring rather than two coincident ones. */
+      resetGameState();
+      quarterComplete = true;
+      openReport();
+      const baselineSeries = _drawBoardBalanceRadar(REPORT.data).points.length;
+      closeReport();
+
       resetGameState();
       /* A committed midyear pack, so month 2 and month 3 are real closes
          rather than the flat opening quarter. */
@@ -3059,7 +3067,7 @@ async function driveToYearEnd(page, roles) {
       const second = ink();
 
       return {
-        role, label, fallback,
+        role, label, fallback, baselineSeries,
         firstW: first.w, secondW: second.w,
         firstH: first.h, secondH: second.h,
         opaque: first.alpha > 0,
@@ -3088,7 +3096,8 @@ async function driveToYearEnd(page, roles) {
     eq(s.secondW, s.firstW, 'radar: canvas.width is identical after close and reopen');
     eq(s.secondH, s.firstH, 'radar: canvas.height is identical after close and reopen');
     ok(s.inkStable, 'radar: reopening redraws identically (the transform does not compound)');
-    eq(s.geometry.seriesCount, 2, 'radar: two series are plotted (quarter open and quarter close)');
+    eq(s.geometry.seriesCount, 2, 'radar: two series are plotted (previous quarter and this quarter)');
+    eq(s.baselineSeries, 1, 'radar: the opening pack plots one series - there is no previous quarter');
     eq(s.geometry.axisCount, 6, 'radar: one axis per metric');
     ok(s.geometry.firstAxisIsUp, 'radar: the first axis points straight up');
     ok(page._errors.length === 0, 'radar: no console/page errors');
@@ -3470,10 +3479,22 @@ async function driveToYearEnd(page, roles) {
     eq(q3.subtitle, 'QUARTERLY BOARD PACK', 'masthead: the subtitle no longer claims DECISION REQUIRED over all four pages');
 
     /* --- X6: the radar and the cards share one window --- */
-    ok(/Quarter open/.test(q3.radarLegend) && /Quarter close/.test(q3.radarLegend),
-       'radar window: the legend names the quarter, not the months (' + q3.radarLegend + ')');
+    ok(/previous quarter/i.test(q3.radarLegend) && /this quarter/i.test(q3.radarLegend),
+       'radar window: the legend names the two quarters, not the months (' + q3.radarLegend + ')');
+    ok(!/month/i.test(q3.radarLegend),
+       'radar window: the legend does not describe a month window (' + q3.radarLegend + ')');
+    ok(/grey/i.test(q3.radarLegend),
+       'radar window: the legend names the colour of the previous-quarter ring (' + q3.radarLegend + ')');
     ok(/higher is better/i.test(q3.radarLabel), 'radar window: the aria-label still states the direction');
     ok(/quarter close/i.test(q3.radarLabel), 'radar window: the aria-label names the quarter close');
+    ok(/previous quarter/i.test(q3.radarLabel),
+       'radar window: the aria-label carries the movement against the previous quarter');
+    /* The Q1 pack has no previous quarter, so it must not claim one - neither in
+       the legend nor in the text a screen reader is given. */
+    ok(/no previous quarter/i.test(q1.radarLegend),
+       'radar window: the Q1 legend states there is no previous quarter (' + q1.radarLegend + ')');
+    ok(/opening position/i.test(q1.radarLabel),
+       'radar window: the Q1 aria-label describes the opening position (' + q1.radarLabel + ')');
 
     const window6 = await page.evaluate(() => {
       quarterComplete = true;

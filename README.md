@@ -16,12 +16,14 @@ The reports are the game: players read RPG-style stat bars that show the pressur
 
 Each quarter:
 
-1. **A crisis hits.** A title card over the live hospital, three pieces of evidence and the board pack. The stat bars show where each measure is, its red-line notch, and (striped) the pressure already coming whatever you do.
+1. **A crisis hits.** A title card over the live hospital, three pieces of evidence and the board pack. From Q2 a memo strip says what last quarter set in motion (the Gazette headline, what followed, and any red line that is close). The stat bars show where each measure is, its status word (Strong … Critical), its red-line notch, and (striped) the pressure already coming whatever you do. The board pack's performance report turns each score into an illustrative real-world figure (A&E 4-hour %, harm-free care, sickness absence, Friends and Family Test, complaints).
 2. **Argue, then pick a proposal.** Each illustrated card shows its cost in coins: now, later and ongoing. Highlighting one makes the board react (YES! / NO! / HMM) based on each role's own measure. The rest of the effects are hidden: that is the judgement.
 3. **Lock it in with two taps:** tap the stat bar you expect to take the biggest hit, and pick who checks on it. Calling it right earns +2 confidence next quarter.
-4. **Watch it play out.** The camera zooms into your decision, then steps through anything agreed earlier, any regulator response, outside pressure and knock-on effects, with the stat bars and a money waterfall building as you go. If you misclick, the lock-in screen has a Back button: there is no undo once the replay starts. At the end the Gazette prints, the verdict stamps land, and **What if we'd chosen…** shows the alternate timeline.
+4. **Watch it play out.** The camera zooms into your decision, then steps through anything agreed earlier, any regulator response, outside pressure and knock-on effects, with the stat bars and a money bridge (start → each step → end, every row labelled) building as you go. If you misclick, the lock-in screen has a Back button: there is no undo once the replay starts. At the end the Gazette prints, the verdict stamps land, the status panel shows ▲/▼ change over the quarter, from Q2 **On this course** gives the rating the inspectors would give if nothing else changed (counting costs already coming) and warns when a red line will break next quarter, and **What if we'd chosen…** shows the alternate timeline.
 
-At year-end: an inspection stamp over a hospital that celebrates or hosts inspectors, a headline, a balance radar (start vs end), red-line badges, and tabs for the four front pages, the journey heat-strip, the board, next year's invoice and a four-question learning check.
+At year-end: an inspection stamp over a hospital that celebrates or hosts inspectors, a headline, a start-of-year → year-end chart for every measure (numbers printed, red lines marked), red-line badges, and tabs for the four front pages, the journey heat-strip, the board, next year's invoice and a four-question learning check.
+
+**Keyboard (for whoever drives):** A–D pick · Enter lock in · in the lock-in 1–5 pick the bar, Q–Y the reviewer, Enter confirm · → next step · ← back · S skip · N or Enter on to the next quarter · F facilitator mode.
 
 See [docs/FACILITATOR.md](docs/FACILITATOR.md) for a printable crib, timings and what to watch for. **Facilitator notes → Print role cards** prints one card per role.
 

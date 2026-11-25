@@ -99,7 +99,7 @@ async function answerAll(page, count) {
   await act(desk, 'step-end').click();
   await desk.locator('#compare-body [data-action="compare"]').first().click();
   assert.equal(await desk.locator('.diverge li').count(), 6, 'alternate timeline shows all six measures');
-  assert.match(await desk.locator('.stamp-line').first().innerText(), /CALLED IT|CLOSE|MISSED IT|NO HIT/);
+  assert.match(await desk.locator('.stamps .stamp-line').first().innerText(), /CALLED IT|CLOSE|MISSED IT|NO HIT/);
   await act(desk, 'next').click();
   await quarter(desk, 'briefing', 'staff', 'cpo'); await finishReport(desk);
   await quarter(desk, 'wellbeing', 'access', 'coo');
@@ -155,11 +155,65 @@ async function answerAll(page, count) {
   const overflow = await phone.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   assert.ok(overflow <= 0, 'no sideways scrolling on a phone');
   await shot(phone, '06-phone-decision');
+  const clipped = await phone.evaluate(() => [...document.querySelectorAll('.real-line, .stat-name, .p-title')].filter(el => el.scrollWidth - el.clientWidth > 2).length);
+  assert.equal(clipped, 0, 'no clipped text on the phone decision screen');
   for (const option of ['discharge', 'virtual', 'listen', 'lounge']) { await quarter(phone, option, 'staff', 'cpo'); await act(phone, 'step-end').click(); await act(phone, 'next').click(); }
   await phone.locator('.big-stamp').waitFor();
   await shot(phone, '07-phone-year-end', true);
 
-  // 3. Reduced motion still renders a still hospital.
+  // 3. Keyboard only, plain font, big spend: hotkeys drive a whole year, and the
+  //    money bridge keeps its colours when the deficit nears the red line.
+  const keys = await browser.newPage({ viewport: { width: 1920, height: 1080 } });
+  watch(keys);
+  await keys.goto(url);
+  await keys.locator('[data-action="font-plain"]').click();
+  await act(keys, 'all-seats').click();
+  await keys.locator('#start-form button[type="submit"]').click();
+  await keys.locator('.proposals').waitFor();
+  let q = 0;
+  for (const [letter, bar, owner] of [['a', '3', 't'], ['b', '1', 'e'], ['d', '5', 'q'], ['a', '1', 'e']]) {
+    if (q === 1) {
+      // Tab + Enter selects the focused proposal; it must not lock in the previous pick.
+      await keys.keyboard.press('a');
+      await keys.keyboard.press('Tab');
+      await keys.keyboard.press('Enter');
+      assert.equal(await keys.locator('#dialog[open] [data-action="commit"]').count(), 0, 'Enter on an unpicked proposal does not open the lock-in');
+      assert.equal(await keys.locator('.proposals .proposal:nth-child(2)').getAttribute('aria-pressed'), 'true', 'Enter on a focused proposal picks it');
+    }
+    await keys.keyboard.press(letter);
+    assert.equal(await keys.locator('.proposal[aria-pressed="true"]').count(), 1, `key ${letter} picks a proposal`);
+    await keys.keyboard.press('Enter');
+    assert.equal(await keys.locator('#dialog[open] [data-action="commit"]').count(), 1, 'Enter opens the lock-in after a key pick');
+    await keys.keyboard.press(bar); await keys.keyboard.press(owner);
+    assert.equal(await keys.locator('#dialog [data-action="commit"]').isDisabled(), false, 'number and letter keys fill the lock-in');
+    await keys.keyboard.press('Enter');
+    await keys.locator('#dialogue').waitFor();
+    await keys.keyboard.press('ArrowRight');
+    assert.match(await keys.locator('#narration').innerText(), /Step 2 of/);
+    await keys.keyboard.press('s');
+    await keys.locator('.gazette').waitFor();
+    // Money value and change stay inside the status panel in plain font.
+    const fits = await keys.evaluate(() => { const panel = document.querySelector('#hud-slot .hud').getBoundingClientRect(); return [...document.querySelectorAll('#hud-slot .stat-value, #hud-slot .pop')].every(el => el.getBoundingClientRect().right <= panel.right + 1); });
+    assert.ok(fits, 'status values fit inside the panel in plain font');
+    const bars = await keys.evaluate(() => [...document.querySelectorAll('.bridge .br-track i.bad, .bridge .br-track i.total')].map(el => getComputedStyle(el).backgroundColor));
+    assert.ok(bars.length && bars.every(colour => colour !== 'rgba(0, 0, 0, 0)'), 'every money bridge bar is coloured');
+    if (q === 0) {
+      // REPLAY rebuilds the step view cleanly; S returns to the quarter end.
+      await act(keys, 'beat-replay').click();
+      assert.equal(await keys.locator('#water-slot').count(), 1, 'replay shows the step view');
+      assert.equal(await keys.locator('.gazette').count(), 0, 'replay hides the front page again');
+      await keys.keyboard.press('s');
+      await keys.locator('.gazette').waitFor();
+    }
+    // Enter at the quarter end goes on to the next quarter (N does the same).
+    await keys.keyboard.press(q % 2 ? 'n' : 'Enter');
+    if (q < 3) await keys.locator('.proposals').waitFor();
+    q++;
+  }
+  await keys.locator('.big-stamp').waitFor();
+  assert.ok(await keys.locator('.dumbbells li').count() === 6, 'year-end shows start → end for all six measures');
+
+  // 4. Reduced motion still renders a still hospital.
   const calm = await browser.newPage({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
   watch(calm);
   await calm.goto(url);

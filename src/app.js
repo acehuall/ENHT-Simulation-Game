@@ -92,6 +92,7 @@
       game.innerHTML = V.debrief(all, state, focusSeat, debriefTab);
     }
     maps = Northbrook.pixel.mountAll(game, all.at(-1)?.closing ?? E.initial());
+    fitDecisionMap();
     if (typeof applyFont === 'function') applyFont();
     updateMaps(true);
     tickTimer();
@@ -104,6 +105,18 @@
     }
   }
 
+  // When the crisis card makes the decision map taller than its usual crop,
+  // slide the hospital down so the frame never shows an empty band.
+  function fitDecisionMap() {
+    const frame = game.querySelector('.decision-main .map-frame'), zoom = frame?.querySelector('.map-zoom');
+    if (!zoom) return;
+    zoom.style.transform = '';
+    if (getComputedStyle(zoom).position !== 'absolute') return;
+    const ch = zoom.offsetHeight, fh = frame.clientHeight;
+    zoom.style.transform = `translateY(${Math.round(Math.min(0, Math.max(fh - ch, -0.3 * ch)))}px)`;
+  }
+  window.addEventListener('resize', fitDecisionMap);
+
   // Push the current numbers and scene into the hospital map(s) and overlay.
   function updateMaps(restart = false) {
     if (!state) return;
@@ -112,7 +125,8 @@
       let view;
       if (state.phase === 'decision') {
         const q = quarters[all.length];
-        view = { snapshot: all.at(-1)?.closing ?? E.initial(), zone: q.zone, dressing: q.dressing, scene: null, done: false };
+        const cz = Northbrook.pixel.ZONES[q.zone];
+        view = { snapshot: all.at(-1)?.closing ?? E.initial(), zone: q.zone, dressing: q.dressing, scene: null, done: false, card: cz.x + cz.w / 2 < 16 ? 'right' : 'left' };
       } else if (state.phase === 'report') {
         const round = all.at(-1), q = quarters[round.index], option = E.optionFor(round.index, round.minute.choice);
         const entry = beat >= 0 ? round.entries[beat] : null;
@@ -127,12 +141,14 @@
       }
       map.set(view);
       const frame = game.querySelector(`[data-map="${id}"]`)?.closest('.map-frame');
+      const zone = state.phase === 'report' && beat === 0 ? Northbrook.pixel.ZONES[view.zone] : null;
+      view.zoom = zone;
       if (frame) {
-        const zone = state.phase === 'report' && beat === 0 ? Northbrook.pixel.ZONES[view.zone] : null;
         frame.classList.toggle('zoomed', !!zone);
         if (zone) frame.style.setProperty('--zx', `${((zone.x + zone.w / 2) / Northbrook.pixel.COLS * 100).toFixed(1)}%`), frame.style.setProperty('--zy', `${((zone.y + zone.h / 2) / Northbrook.pixel.ROWS * 100).toFixed(1)}%`);
       }
       const overlay = V.mapOverlay(view);
+      if (state.phase === 'debrief') overlay.sign = null; // the inspection card carries the headline
       const sign = $(`#${id}-sign`);
       if (sign) { sign.hidden = !overlay.sign; if (overlay.sign) { sign.textContent = overlay.sign.text; sign.setAttribute('style', overlay.sign.style); } }
       const moneyTag = $(`#${id}-money`); if (moneyTag) moneyTag.textContent = overlay.money;
@@ -158,10 +174,18 @@
   function refreshReport(focusAction) {
     if (beat !== 0) advanced = true;
     // The end of the quarter adds the Gazette and panels, so re-render fully there.
-    if (beat === -1) { render(false); const target = game.querySelector('[data-action="beat-replay"]') || game.querySelector('#narration'); target?.focus({ preventScroll: true }); return; }
+    // Enter on the focused button goes on to the next quarter, as the key list says.
+    if (beat === -1) { render(false); const target = game.querySelector('#dialogue [data-action="next"]') || game.querySelector('#narration'); target?.focus({ preventScroll: true }); return; }
     const all = rounds(), round = all.at(-1);
     const dlg = game.querySelector('#dialogue');
-    if (!dlg) { render(false); return; }
+    // Leaving the quarter end (replay, back, or a step dot): the Gazette layout has no
+    // step panels, so rebuild the page before patching it.
+    if (!dlg || !$('#water-slot')) {
+      render(false);
+      const target = focusAction ? game.querySelector(`#dialogue [data-action="${focusAction}"]:not([disabled])`) : null;
+      (target || game.querySelector('#dialogue [aria-current="step"]'))?.focus({ preventScroll: true });
+      return;
+    }
     dlg.outerHTML = V.dialogue(round, beat);
     $('#hud-slot').innerHTML = V.hud({ snapshot: round.entries[beat].snapshot, change: round.entries[beat].effects, title: `Step ${beat + 1} of ${round.entries.length + 1}` });
     $('#water-slot').innerHTML = V.waterfall(round, beat);
@@ -338,6 +362,35 @@
     }
   });
 
+  // Facilitator hotkeys: A–D pick, Enter locks in, → next step, ← back, S skip, F facilitator mode.
+  document.addEventListener('keydown', event => {
+    if (event.ctrlKey || event.metaKey || event.altKey || event.repeat) return;
+    const target = event.target;
+    if (target.closest?.('input, textarea, select, [contenteditable]')) return;
+    const key = event.key.toLowerCase(), phase = state?.phase;
+    const press = selector => { const el = document.querySelector(selector); if (el && !el.disabled) { event.preventDefault(); el.click(); return true; } return false; };
+    if (dialog.open) {
+      // Lock-in dialog: 1–5 pick the bar, Q–Y pick the reviewer, Enter locks in.
+      if (!dialog.querySelector('[data-action="commit"]')) return;
+      const bar = '12345'.indexOf(key), owner = 'qwerty'.indexOf(key);
+      if (bar >= 0) press(`#dialog .stats li:nth-child(${bar + 2}) .stat-pick`);
+      else if (owner >= 0) press(`#dialog .owner-row .owner:nth-child(${owner + 1})`);
+      else if (key === 'enter' && (!target.closest('button, a') || target.closest('.stat-pick[aria-pressed="true"], .owner[aria-pressed="true"]'))) press('#dialog [data-action="commit"]');
+      return;
+    }
+    if (key === 'f') { press('#facil-btn'); return; }
+    if (phase === 'decision') {
+      const n = 'abcd'.indexOf(key);
+      if (n >= 0) { press(`.proposals .proposal:nth-child(${n + 1})`); return; }
+      if (key === 'enter' && (!target.closest('button, a') || target.closest('.proposal[aria-pressed="true"]'))) press('[data-action="lock"]');
+    } else if (phase === 'report') {
+      if (key === 'arrowright') press('[data-action="step-next"]');
+      else if (key === 'n') press('[data-action="step-next"]') || press('[data-action="next"]');
+      else if (key === 'arrowleft') press('[data-action="step-back"]');
+      else if (key === 's') press('[data-action="step-end"]');
+      else if (key === 'enter' && !target.closest('button, a')) press('[data-action="next"]');
+    }
+  });
   dialog.addEventListener('click', event => { if (event.target === dialog) dialog.close(); });
   dialog.addEventListener('close', () => { pending = null; });
   $('#facil-btn').addEventListener('click', () => { setFacilitator(!facilitatorOn); tickTimer(); });

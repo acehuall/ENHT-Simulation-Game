@@ -13,6 +13,24 @@ How *Trust in Balance* got here, and what is still unproven. Each score comes fr
 | v3 rebuild | independent reviewer | 7.2 | Balance tool, red lines, role objectives, matched quiz sets. |
 | v4 visual overhaul | independent reviewer | 7.8 | One pixel identity; the Gazette, replay and debrief became the gameplay. Visuals 8.0. |
 | v4 simulated group | Chloe + 5 students | Fun 6.6 · Clear 7.0 · Learned 6.2 | About 52 minutes against the 45 claimed. |
+| v5 (v4 review fixes) | same reviewer standard, re-scored in Nov | ~7.5 | The November round-1 reviewer judged the 7.8 about 7.5 on its stricter standard. |
+| v6 round 1 (dashboards, money bridge, story strip) | independent reviewer, real clicks | 7.4 (changes 5.5) | Good ideas; the money bridge lost its bars near the red line and Enter didn't lock in. |
+| v6 round 2 (round-1 fixes) | fresh independent reviewer, real clicks | 7.6 (changes 6.8) | Both regressions fixed; running rating honest. Found the REPLAY/Enter bug (latent since v5) and forecast gaps. |
+
+## v6 (November 2026)
+
+What changed, and why (see `docs/OPPORTUNITIES.md` for the source of each item):
+
+- **Dashboards you can read from the back of the room.** Status rows carry a status word (Critical whenever a red line is broken), ▲/▼ change over the quarter, and an illustrative real-world figure at quarter end (A&E 4-hour %, harm-free care, sickness, Friends and Family Test, complaints).
+- **Money bridge** (start → each step → end, every row labelled) replaces the tiny waterfall, and sits beside the status panel at quarter end.
+- **Year-end dumbbell chart** (start → year-end with numbers and red lines) replaces the radar.
+- **"On this course"** from Q2: the rating the inspectors would give if nothing else changed, counting earlier deals, outside pressure and knock-ons already coming, with red-line warnings. The striped "pressure already coming" on the bars now counts knock-ons too.
+- **Story continuity:** a memo strip from Q2 with last quarter's front page, an authored line on what that choice set in motion, and any red line or knock-on close by.
+- **One money story:** the board pack's "Before your decision" matches the striped bar; later commitments are listed separately.
+- **Keyboard driving** (A–D, Enter, 1–5, Q–Y, →, ←, S, N, F), a fixed REPLAY button (it threw an error since v5), readable map landmarks, laptop (1440×900) layout that fits all four proposals.
+- **Tests:** 13 engine tests; a browser test with a keyboard-only plain-font big-spend year; and `tests/e2e-routes.cjs`, a real-click sweep of 24 years (every option, projector, laptop and phone) checking layout, money arithmetic and the year-end rating on every screen.
+
+Still unproven: no real group has played it, the 45-minute session time comes from simulations, and the engine balance is unchanged from v5 (spending tends to buy points until the money red line bites).
 
 ## Fixed after the v4 round (this build)
 

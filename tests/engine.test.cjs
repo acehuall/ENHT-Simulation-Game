@@ -112,3 +112,25 @@ test('quiz sets are matched by skill, distinct, and the right answer moves aroun
   for (const slot of [0, 1, 2]) assert.ok(positions.filter(p => p === slot).length <= 6, `correct answer is not usually in slot ${slot + 1}`);
   assert.deepEqual(E.assess('transfer', questions.transfer.map(item => item.correct)).map(item => item.passed), [true, true, true, true]);
 });
+
+test('projection applies the same earlier deals and outside pressure as the next quarter', () => {
+  const ids = quarters.map(q => q.options.map(o => o.id));
+  for (const a of ids[0]) for (const b of ids[1]) {
+    const rounds = year([a], [b]);
+    const proj = E.project(rounds.at(-1));
+    assert.ok(proj.steps.every(step => ['carry', 'regulator', 'foresight', 'headwind', 'system'].includes(step.kind)));
+    const next = E.resolve(rounds.length, rounds.at(-1).closing, rounds.at(-1).upcoming, ids[rounds.length][0]);
+    // Earlier deals and outside pressure in the projection are exactly what the real quarter applies.
+    const real = next.entries.filter(e => e.kind !== 'decision' && e.kind !== 'system').map(e => e.label);
+    assert.deepEqual(proj.steps.filter(s => s.kind !== 'system').map(s => s.label), real);
+  }
+  const start = E.project({ index: -1, closing: E.initial(), upcoming: [] });
+  assert.equal(start.snapshot.budget, E.initial().budget + (quarters[0].headwind.budget || 0), 'Q1 projection is the opening plus Q1 pressure');
+});
+
+test('a measure below its red line is always shown as critical', () => {
+  for (const line of rules.redLines) {
+    assert.equal(E.band(line.metric, line.min - 1), 'critical');
+    assert.notEqual(E.band(line.metric, line.metric === 'budget' ? 0 : 80), 'critical');
+  }
+});

@@ -74,19 +74,30 @@ Northbrook.views = (() => {
     }
     return `<span class="bar ${band}" style="--n:${total}">${cells}</span>`;
   }
-  // rows: { snapshot, pressure (effects due regardless), change (this step), interactive, picked }
-  function hud({ snapshot, pressure = null, change = null, interactive = false, picked = null, title = 'Hospital status', compact = false }) {
-    return `<section class="hud px-panel${compact ? ' compact' : ''}" aria-label="${esc(title)}">
-      <header class="px-title">${icon('star')}<h2>${esc(title)}</h2>${pressure ? '<span class="legend"><i class="drain"></i> pressure already coming</span>' : ''}</header>
+  // Illustrative NHS equivalent for a 0–100 measure (labelled as illustrative wherever shown).
+  function realWorld(id, amount) {
+    const real = metricById(id).real;
+    if (!real) return null;
+    const raw = real.base + real.slope * amount, shown = real.unit === '%' ? raw.toFixed(raw < 20 ? 1 : 0) : Math.round(raw);
+    return { text: `${shown}${real.unit} ${real.label}`, value: `${shown}${real.unit}`, label: real.label, short: real.short || real.label, standard: real.standard };
+  }
+  const arrow = c => c > 0 ? '▲' : c < 0 ? '▼' : '';
+  // rows: { snapshot, pressure (effects due regardless), change (this step), since (opening snapshot), interactive, picked }
+  function hud({ snapshot, pressure = null, change = null, since = null, interactive = false, picked = null, title = 'Hospital status', compact = false }) {
+    return `<section class="hud px-panel${compact ? ' compact' : ''}${since ? ' since' : ''}" aria-label="${esc(title)}">
+      <header class="px-title">${icon('star')}<h2>${esc(title)}</h2>${pressure ? '<span class="legend"><i class="drain"></i> pressure already coming</span>' : since ? '<span class="legend">change this quarter</span>' : change ? '<span class="legend">this step</span>' : ''}</header>
       ${interactive ? `<p class="px-foot money-note">${icon('coin')} Money is on its own track: tap one of the five care bars.</p>` : ''}
       <ul class="stats">${metrics.map(metric => {
-        const amount = snapshot[metric.id], ghost = pressure ? amount + (pressure[metric.id] || 0) : null, step = change?.[metric.id];
-        const red = line(metric.id);
-        const inner = `<span class="stat-icon">${icon(metric.icon)}</span><span class="stat-name">${metric.label}</span>${bar(metric.id, amount, ghost)}
-          <b class="stat-value">${value(metric.id, amount)}</b>${step ? `<em class="pop ${tone(step)}">${delta(metric.id, step)}</em>` : '<em class="pop"></em>'}
-          <span class="sr-only">${bandLabel[E.band(metric.id, amount)]}${red ? `, red line ${value(metric.id, red.min)}` : ''}${ghost !== null && ghost !== amount ? `, falls to ${value(metric.id, ghost)} if nothing changes` : ''}</span>`;
+        const amount = snapshot[metric.id], ghost = pressure ? amount + (pressure[metric.id] || 0) : null;
+        const step = change ? change[metric.id] : since ? amount - since[metric.id] : 0;
+        const red = line(metric.id), band = E.band(metric.id, amount), real = realWorld(metric.id, amount);
+        const popText = step ? `${since ? arrow(step) : ''}${delta(metric.id, step)}` : since ? '=' : '';
+        const inner = `<span class="stat-icon">${icon(metric.icon)}</span><span class="stat-name">${metric.label}<small class="band-word ${band}">${bandLabel[band]}</small></span>${since && real ? `<span class="bar-cell">${bar(metric.id, amount, ghost)}<small class="real-line">≈ ${real.value} ${esc(real.short)}</small></span>` : bar(metric.id, amount, ghost)}
+          <b class="stat-value">${value(metric.id, amount)}</b><em class="pop ${tone(step)}">${popText}</em>
+          <span class="sr-only">${bandLabel[band]}${real ? `, about ${real.text}` : ''}${red ? `, red line ${value(metric.id, red.min)}` : ''}${ghost !== null && ghost !== amount ? `, falls to ${value(metric.id, ghost)} if nothing changes` : ''}</span>`;
         const canPick = interactive && metric.id !== 'budget';
-        return `<li class="stat${step ? ' changed ' + tone(step) : ''}${picked === metric.id ? ' picked' : ''}${metric.id === 'budget' ? ' money' : ''}">${canPick
+        const tip = real ? ` title="${esc(`${metric.label} ${amount} ≈ ${real.text} (illustrative; ${real.standard})`)}"` : '';
+        return `<li class="stat${step && change ? ' changed ' + tone(step) : ''}${picked === metric.id ? ' picked' : ''}${metric.id === 'budget' ? ' money' : ''}"${tip}>${canPick
           ? `<button type="button" class="stat-pick" data-action="predict" data-metric="${metric.id}" aria-pressed="${picked === metric.id}">${inner}</button>` : inner}</li>`;
       }).join('')}</ul>
       ${compact ? '' : `<p class="px-foot">${icon('flag')} Red-line notches: safety ${line('safety').min}, access ${line('access').min}, money ${value('budget', line('budget').min)}.</p>`}
@@ -100,7 +111,7 @@ Northbrook.views = (() => {
     return 'happy';
   }
   const faces = { happy: '☺', worried: '~', angry: '!' };
-  const goalItem = (item, final) => `<li class="${item.status}"><span class="weight">${'■'.repeat(item.weight)}</span><span>${esc(item.label)}</span><em>${item.metric === 'recurring' ? money(item.value) + '/qtr' : value(item.metric, item.value)}${!final && item.metric === 'budget' ? ' forecast' : ''} · ${statusLabel[item.status]}</em></li>`;
+  const goalItem = (item, final) => `<li class="${item.status}"><span class="weight">${'■'.repeat(item.weight)}</span><span>${esc(item.label)}</span><em>${item.metric === 'recurring' ? money(item.value) + '/qtr' : value(item.metric, item.value)}${!final && item.metric === 'budget' ? ' with agreed costs, before outside pressure' : ''} · ${statusLabel[item.status]}</em></li>`;
   function boardTable(seats, rounds, { stances = null, focus = null, final = false } = {}) {
     const cards = seats.map(id => E.scoreRole(id, rounds, final));
     const showAll = focus === 'all' && seats.length > 1;
@@ -136,17 +147,30 @@ Northbrook.views = (() => {
   const qpips = index => `<span class="qpips" aria-hidden="true">${quarters.map((_, i) => `<i class="${i < index ? 'done' : i === index ? 'now' : ''}"></i>`).join('')}</span>`;
 
   function hospitalMap(id, caption, extraClass = '', overlay = '') {
-    const labels = P.LABELS.map(([text, x, y, key]) => `<span class="room${key ? ' key' : ''}" style="left:${(x / P.COLS * 100).toFixed(2)}%;top:${(y / P.ROWS * 100).toFixed(2)}%">${esc(text)}</span>`).join('');
+    const labels = P.LABELS.map(([text, x, y, key]) => `<span class="room${key ? ' landmark' : ''}" style="left:${(x / P.COLS * 100).toFixed(2)}%;top:${(y / P.ROWS * 100).toFixed(2)}%${x / P.COLS > .85 ? ';transform:translate(-100%, -50%)' : x / P.COLS < .15 ? ';transform:translate(0, -50%)' : ''}">${esc(text)}</span>`).join('');
     return `<figure class="map ${extraClass}">
       <div class="map-frame"><div class="map-zoom"><canvas data-pixel="hospital" data-map="${id}" width="960" height="544" aria-hidden="true"></canvas>
         <div class="map-overlay" aria-hidden="true">${labels}<span class="map-sign" id="${id}-sign" hidden></span><div class="floaters" id="${id}-floaters"></div></div></div>
         <span class="map-money" id="${id}-money" aria-hidden="true"></span>${overlay}</div>
       <figcaption><span class="sr-only" id="${id}-desc"></span><span id="${id}-caption">${esc(caption)}</span></figcaption></figure>`;
   }
-  function mapOverlay({ scene, dressing, snapshot, floaters = [], signText = null }) {
+  function mapOverlay({ scene, dressing, snapshot, floaters = [], signText = null, zoom = null, scale = 1.75, card = null }) {
     const zoneOf = key => P.ZONES[key] || P.ZONES.front;
     const signDef = P.SCENES[scene]?.signs?.[0] || P.DRESSING[dressing]?.sign;
-    const place = zone => `left:${((zone.x + zone.w / 2) / P.COLS * 100).toFixed(2)}%;top:${((zone.y < 4 ? zone.y + zone.h + 1.4 : zone.y) / P.ROWS * 100).toFixed(2)}%`;
+    // Keep signs and floaters inside the visible window, even when the map is zoomed:
+    // near an edge they anchor to that edge instead of hanging off it.
+    const zx = zoom ? (zoom.x + zoom.w / 2) / P.COLS * 100 : 50, lo = zoom ? zx - zx / scale : 0, hi = zoom ? zx + (100 - zx) / scale : 100;
+    const place = zone => {
+      const x = Math.max(lo + 2, Math.min(hi - 2, (zone.x + zone.w / 2) / P.COLS * 100)), r = (x - lo) / (hi - lo);
+      let ax = r > .66 ? '-100%' : r < .34 ? '0%' : '-50%', left = x;
+      // On the decision screen the crisis card covers one side: keep the sign on the other.
+      if (card === 'right' && x > 30) { left = Math.min(x, 50); ax = '-100%'; } else if (card === 'left' && x < 70) { left = Math.max(x, 50); ax = '0%'; }
+      const top = (zone.y < 4 ? zone.y + zone.h + 1.4 : zone.y) / P.ROWS * 100;
+      const zy = zoom ? (zoom.y + zoom.h / 2) / P.ROWS * 100 : 50, loY = zoom ? zy - zy / scale : 0, hiY = zoom ? zy + (100 - zy) / scale : 100;
+      // In the lower part of the view, floaters stack upwards so the frame bottom never clips them.
+      const dir = (top - loY) / (hiY - loY) > .45 ? -1 : 1;
+      return `left:${left.toFixed(2)}%;top:${top.toFixed(2)}%;--ax:${ax};--dir:${dir}`;
+    };
     const fz = zoneOf(P.SCENES[scene]?.zone || P.DRESSING[dressing]?.zone);
     return {
       sign: signDef ? { text: signText || signDef[0], style: place(zoneOf(signDef[1])) } : null,
@@ -259,14 +283,31 @@ Northbrook.views = (() => {
     if (!last) return '';
     const metric = metricById(last.minute.prediction), owner = roleById(last.minute.owner), rightful = E.ownerFor(metric.id);
     const before = last.opening[metric.id], now = last.closing[metric.id], red = line(metric.id), band = E.band(metric.id, now);
-    const advice = red && now - red.min < 8 ? `Only ${now - red.min} above the red line: protect it this quarter.` : ['concern', 'critical'].includes(band) ? 'Below where it should be: the board should act.' : now < before ? 'Still falling: keep an eye on it.' : 'Holding up.';
-    return `<aside class="memo" aria-label="Review from last quarter"><span class="memo-tag">MEMO</span><canvas data-portrait="${owner.id}" width="24" height="24" aria-hidden="true"></canvas>
-      <p><b>${esc(owner.short)} review (agreed Q${last.index + 1}):</b> ${metric.label} went ${before} → ${now}. ${advice}${owner.id === rightful.id ? '' : ` (The ${esc(rightful.short)} owns ${metric.label.toLowerCase()}.)`}</p></aside>`;
+    const advice = red && now - red.min < 0 ? `Below the red line (${red.min}): the regulator is watching. Fix it now.` : red && now - red.min === 0 ? `Sitting exactly on the red line: one more point and it breaks.` : red && now - red.min < 8 ? `Only ${now - red.min} above the red line: protect it this quarter.` : ['concern', 'critical'].includes(band) ? 'Below where it should be: the board should act.' : now < before ? 'Still falling: keep an eye on it.' : 'Holding up.';
+    return `<aside class="memo" aria-label="Since the last board"><span class="memo-tag">MEMO</span><canvas data-portrait="${owner.id}" width="24" height="24" aria-hidden="true"></canvas>
+      <div class="memo-body">${previously(rounds, metric.id)}<p><b>${esc(owner.short)} review (agreed Q${last.index + 1}):</b> ${metric.label} went ${before} → ${now}. ${advice}${owner.id === rightful.id ? '' : ` (The ${esc(rightful.short)} owns ${metric.label.toLowerCase()}.)`}</p></div></aside>`;
   }
   function facilCallout(index, startedAt, snapshot = null) {
     const notes = facilitator.quarters[index];
     return `<aside class="facil facil-only" aria-label="Facilitator prompt"><div><b>${icon('info')} FACILITATOR</b><span class="timer">${icon('clock')} Q <span id="quarter-timer" data-start="${startedAt}">0:00</span>/${notes.minutes}:00 · Session <span id="session-timer">0:00</span>/45:00</span></div>
       <p><b>Ask:</b> ${esc(notes.ask)}</p><p><b>Watch for:</b> ${esc(notes.watch)}${snapshot ? ` Right now: ${value('budget', snapshot.budget)}, so ${money(snapshot.budget - line('budget').min)} of room before the red line.` : ''}</p></aside>`;
+  }
+
+  // Story continuity: last quarter's front page and the one thing the board should worry about now.
+  function previously(rounds, skip = null) {
+    const last = rounds.at(-1);
+    if (!last) return '';
+    const option = E.optionFor(last.index, last.minute.choice), snap = last.closing;
+    const worries = rules.knockOns.map(k => ({ k, gap: snap[k.metric] - k.below })).filter(w => w.k.metric !== skip && w.gap >= 0 && w.gap < (w.k.metric === 'budget' ? 1000 : 6)).sort((a, b) => a.gap - b.gap);
+    const lines = rules.redLines.map(l => ({ l, gap: snap[l.metric] - l.min })).filter(w => w.gap < 0 || (w.l.metric !== skip && w.gap < (w.l.metric === 'budget' ? 1500 : 8))).sort((a, b) => a.gap - b.gap);
+    const owed = last.upcoming.filter(item => item.kind === 'carry');
+    const story = quarters[last.index + 1]?.after?.[last.minute.choice] || '';
+    const worry = lines[0] ? `${metricById(lines[0].l.metric).label} is ${value(lines[0].l.metric, snap[lines[0].l.metric])}: ${lines[0].gap < 0 ? 'BELOW the red line. The regulator is watching.' : 'close to the red line.'}`
+      : knockOnsAhead(last).length ? `${knockOnsAhead(last).map(k => `${k.label} (${effectText(k.effects)})`).join('; ')} unless the board acts.`
+      : story ? ''
+      : worries[0] ? `${metricById(worries[0].k.metric).label} is ${value(worries[0].k.metric, snap[worries[0].k.metric])}: any lower and ${worries[0].k.label.charAt(0).toLowerCase()}${worries[0].k.label.slice(1)}.`
+      : owed.length ? `Still owed from earlier: ${owed.map(item => item.title.toLowerCase()).join(', ')}.` : '';
+    return `<p class="previously"><span class="prev-tag">LAST TIME</span>${/[“”"]/.test(option.headline) ? esc(option.headline) : `“${esc(option.headline)}”`} ${esc(story)}${worry ? ` <span class="prev-worry">${esc(worry)}</span>` : ''}</p>`;
   }
 
   function proposal(index, option, letter, selected) {
@@ -281,8 +322,9 @@ Northbrook.views = (() => {
 
   function decision(index, rounds, state, selected, startedAt, focus) {
     const q = quarters[index], snapshot = rounds.at(-1)?.closing ?? E.initial();
-    const pressure = { ...q.headwind };
-    for (const item of rounds.at(-1)?.upcoming ?? []) for (const [id, c] of Object.entries(item.effects)) pressure[id] = (pressure[id] || 0) + c;
+    // Striped "pressure already coming": earlier deals, outside pressure and any knock-on that would then fire.
+    const before = rounds.at(-1) ?? { index: -1, closing: E.initial(), upcoming: [] }, ahead = E.project(before).snapshot;
+    const pressure = Object.fromEntries(metrics.map(m => [m.id, ahead[m.id] - snapshot[m.id]]));
     const zone = P.ZONES[q.zone], side = zone.x + zone.w / 2 < 16 ? ' right' : '';
     const crisis = `<div class="cutscene${side}"><div class="kicker">${qpips(index)} Q${index + 1} OF 4 · ${esc(q.season)}</div><h1>${esc(q.title)}</h1><p>${esc(q.summary)}</p>
       <ul class="intel">${q.evidence.map(item => `<li><b>${esc(item.value)}</b> ${esc(item.label)}</li>`).join('')}</ul>${button('board-pack', `${icon('file')} BOARD PACK`, 'gold small')}</div>`;
@@ -318,6 +360,7 @@ Northbrook.views = (() => {
       ${hud({ snapshot, interactive: true, picked: draft.prediction, title: 'Tap a bar', compact: true })}
       <div class="tap-step"><b class="step-n">2</b><div><b>Who checks on it next quarter?</b><span>Whose problem is it?</span></div></div>
       <div class="owner-row">${roles.map(role => `<button type="button" class="owner${draft.owner === role.id ? ' on' : ''}${seats.includes(role.id) ? ' seated' : ''}" data-action="owner" data-role="${role.id}" aria-pressed="${draft.owner === role.id}"><canvas data-portrait="${role.id}" width="24" height="24" aria-hidden="true"></canvas><span>${esc(role.short)}</span></button>`).join('')}</div>
+      <p class="px-foot key-hint">Keys: <b>1–5</b> pick a bar · <b>Q W E R T Y</b> pick the reviewer, left to right · <b>Enter</b> lock in · <b>Esc</b> back</p>
       <div class="modal-actions">${button('close', 'Back', 'ghost')}<button type="button" class="btn gold big" data-action="commit"${draft.prediction && draft.owner ? '' : ' disabled'}>LOCK IN AND WATCH ${icon('arrow')}</button></div>`;
   }
 
@@ -329,7 +372,7 @@ Northbrook.views = (() => {
       hit: `${metric.label} took the biggest hit (${call.mine.change}). +2 confidence ${final ? 'for next year' : 'next quarter'}.`,
       close: `${metric.label} fell ${-call.mine.change}, but ${worst.label.toLowerCase()} fell more (${call.worst.change}).`,
       miss: `${metric.label} ${call.mine.change > 0 ? `rose ${call.mine.change}` : 'held'}. ${worst.label} took the hit (${call.worst.change}).`,
-      none: 'Nothing fell this quarter.',
+      none: round.closing.budget < round.opening.budget ? `No care measure fell this quarter; money fell ${money(round.opening.budget - round.closing.budget)}.` : 'Nothing fell this quarter.',
     }[call.verdict];
     const label = { hit: 'CALLED IT', close: 'CLOSE', miss: 'MISSED IT', none: 'NO HIT' }[call.verdict];
     return `<div class="stamps"><p class="stamp-line ${call.verdict}"><span class="stamp">${label}</span>${esc(callText)}</p>
@@ -347,37 +390,41 @@ Northbrook.views = (() => {
         ${beat === -1 ? `${button('beat-replay', 'REPLAY', 'ghost small')}${button('next', `${round.index === quarters.length - 1 ? 'YEAR-END INSPECTION' : `ON TO Q${round.index + 2}`} ${icon('arrow')}`, 'gold')}` : `${button('step-next', `NEXT ${icon('arrow')}`, 'gold small')}${button('step-end', 'SKIP', 'link')}`}</div></div>`;
   }
 
-  // Money waterfall: start → each step → end, built bar by bar with the replay,
-  // scaled to this quarter's own movements so small steps stay readable.
+  // Money bridge: start → each step → end as horizontal bars, the way a finance
+  // report shows a bridge. Rows build with the replay; every row is labelled.
   function waterfall(round, beat) {
-    const short = { decision: 'You', carry: 'Earlier', regulator: 'Reg', foresight: 'Credit', headwind: 'Pressure', system: 'Knock' };
-    const points = [{ label: 'Start', from: 0, to: round.opening.budget, total: true, shown: true }];
+    const names = { decision: 'Your decision', carry: 'Agreed earlier', regulator: 'Regulator', foresight: 'Board credit', headwind: 'Outside pressure', system: 'Knock-on' };
+    const rows = [{ label: `Start of Q${round.index + 1}`, from: 0, to: round.opening.budget, total: true, shown: true }];
     let running = round.opening.budget;
-    round.entries.forEach((entry, i) => { const amount = entry.effects.budget || 0; points.push({ label: short[entry.kind], from: running, to: running + amount, amount, shown: beat === -1 || i <= beat }); running += amount; });
-    points.push({ label: 'End', from: 0, to: running, total: true, shown: beat === -1 });
-    const values = points.flatMap(p => [p.from, p.to]), redMin = line('budget').min;
+    round.entries.forEach((entry, i) => {
+      const amount = entry.effects.budget || 0;
+      if (amount || entry.kind === 'decision') rows.push({ label: names[entry.kind], detail: ['carry', 'regulator', 'system'].includes(entry.kind) ? entry.label : '', from: running, to: running + amount, amount, shown: beat === -1 || i <= beat });
+      running += amount;
+    });
+    rows.push({ label: `End of Q${round.index + 1}`, from: 0, to: running, total: true, shown: beat === -1 });
+    const redMin = line('budget').min, values = rows.flatMap(r => [r.from, r.to]);
     const near = Math.min(...values) - redMin < 1500;
-    const lo = Math.min(0, ...values, near ? redMin : 0) - 150, hi = Math.max(0, ...values) + 150;
-    const W = points.length * 44, H = 170, top = 22, bottom = 26, y = v => Math.round(top + (hi - v) * (H - top - bottom) / (hi - lo));
-    const bars = points.map((p, i) => {
-      const y1 = y(Math.max(p.from, p.to)), height = Math.max(4, y(Math.min(p.from, p.to)) - y1), x = 6 + i * 44;
-      const cls = p.total ? 'total' : p.amount < 0 ? 'bad' : p.amount > 0 ? 'good' : 'zero';
-      const amount = p.total ? value('budget', p.to) : p.amount ? delta('budget', p.amount) : '0';
-      return `<g class="${p.shown ? '' : 'hidden'}"><rect x="${x}" y="${y1}" width="32" height="${height}" class="${cls}"/><text x="${x + 16}" y="${Math.max(12, y1 - 5)}" class="amt">${amount}</text><text x="${x + 16}" y="${H - 8}" class="lbl">${p.label}</text></g>`;
+    const lo = Math.min(0, ...values, near ? redMin : 0) - 100, hi = Math.max(0, ...values) + 100;
+    const pct = v => ((v - lo) / (hi - lo) * 100).toFixed(2);
+    const body = rows.map(r => {
+      const a = Math.min(r.from, r.to), b = Math.max(r.from, r.to), cls = r.total ? 'total' : r.amount < 0 ? 'bad' : r.amount > 0 ? 'good' : 'zero';
+      const amount = r.total ? value('budget', r.to) : r.amount ? delta('budget', r.amount) : '£0';
+      return `<li class="${r.shown ? '' : 'pending'}${r.total ? ' is-total' : ''}"><span class="br-label">${esc(r.label)}${r.detail ? `<small>${esc(r.detail)}</small>` : ''}</span>
+        <span class="br-track">${r.shown ? `<i class="${cls}" style="left:${pct(a)}%;width:${Math.max(0.8, pct(b) - pct(a)).toFixed(2)}%"></i>` : ''}</span><b class="${cls}">${r.shown ? amount : '…'}</b></li>`;
     }).join('');
     return `<section class="px-panel water" aria-label="Money this quarter"><header class="px-title">${icon('coin')}<h2>Money this quarter</h2><span class="legend">${beat === -1 ? `ended ${value('budget', running)}` : 'building…'}</span></header>
-      <svg viewBox="0 0 ${W} ${H}" shape-rendering="crispEdges" aria-hidden="true"><line x1="0" x2="${W}" y1="${y(0)}" y2="${y(0)}" class="zero-line"/>${near ? `<line x1="0" x2="${W}" y1="${y(redMin)}" y2="${y(redMin)}" class="red-line"/>` : ''}${bars}</svg>
-      <p class="px-foot"><span class="key total"></span>start / end <span class="key bad"></span>cost <span class="key good"></span>saving${near ? ` <span class="key red"></span>red line ${value('budget', redMin)}` : ` · red line ${value('budget', redMin)} is off the chart`}</p></section>`;
+      <ul class="bridge" style="--zero:${pct(0)}%${near ? `;--redpos:${pct(redMin)}%` : ''}">${body}</ul>
+      <p class="px-foot"><span class="key total"></span>position <span class="key bad"></span>cost <span class="key good"></span>saving · ${near ? `<span class="key red"></span>red line ${value('budget', redMin)}` : `red line ${value('budget', redMin)} is ${money(Math.min(...values) - redMin)} away`}</p></section>`;
   }
 
   // In-world front page: the quarter's result as a newspaper.
-  function gazette(round, small = false) {
+  function gazette(round, small = false, wide = false) {
     const option = E.optionFor(round.index, round.minute.choice), q = quarters[round.index];
     const changes = metrics.map(m => ({ m, c: round.closing[m.id] - round.opening[m.id] }));
     const best = [...changes].filter(x => x.m.id !== 'budget').sort((a, b) => b.c - a.c)[0], worst = [...changes].filter(x => x.m.id !== 'budget').sort((a, b) => a.c - b.c)[0];
     const moneyC = changes.find(x => x.m.id === 'budget').c;
     const call = E.prediction(round, round.minute.prediction).verdict;
-    return `<article class="gazette${small ? ' small' : ''}" aria-label="Northbrook Gazette, Q${round.index + 1}">
+    return `<article class="gazette${small ? ' small' : ''}${wide ? ' wide' : ''}" aria-label="Northbrook Gazette, Q${round.index + 1}">
       <header><span class="mast">THE NORTHBROOK GAZETTE</span><span class="edition">Q${round.index + 1} · ${esc(q.season)}</span></header>
       <h3 class="headline">${esc(option.headline)}</h3>
       <div class="g-body"><canvas data-thumb="${option.scene}|${q.dressing}" width="256" height="144" aria-hidden="true"></canvas>${call === 'hit' && !small ? '<span class="g-stamp">BOARD SAW IT COMING</span>' : ''}
@@ -415,34 +462,52 @@ Northbrook.views = (() => {
     const snapshot = beat < 0 ? round.closing : round.entries[beat].snapshot, change = beat < 0 ? null : round.entries[beat].effects;
     const steps = round.entries.length + 1;
     return `<div class="wrap session">
-      ${round.breaches.length && beat === -1 ? `<section class="breach" role="alert">${icon('flag')}<div><b>RED LINE BROKEN: ${round.breaches.map(id => rules.redLines.find(item => item.id === id).title.toUpperCase()).join(' & ')}</b> ${round.breaches.map(id => esc(rules.redLines.find(item => item.id === id).consequence)).join(' ')}</div></section>` : ''}
+      ${round.breaches.length && beat === -1 ? `<section class="breach" role="alert">${icon('flag')}<div><b>RED LINE BROKEN: ${round.breaches.map(id => rules.redLines.find(item => item.id === id).title.toUpperCase()).join(' & ')}</b> ${round.breaches.map(id => esc(final ? rules.redLines.find(item => item.id === id).consequence.replace(/next quarter/g, 'next year') : rules.redLines.find(item => item.id === id).consequence)).join(' ')}${final ? ' The inspectors cap this year’s rating.' : ''}</div></section>` : ''}
       <div class="report-grid">
-        <div class="report-main"><div class="stage">${hospitalMap('main', `Q${index + 1}: ${choice.title}`, 'hero')}${dialogue(round, beat)}</div></div>
+        <div class="report-main"><div class="stage">${hospitalMap('main', `Q${index + 1}: ${choice.title}`, 'hero')}${dialogue(round, beat)}</div>${beat === -1 ? gazette(round, false, true) : ''}</div>
         <aside class="report-side">
-          <div id="hud-slot">${hud({ snapshot, change, title: beat === -1 ? `End of Q${index + 1}` : `Step ${beat + 1} of ${steps}`, compact: beat === -1 })}</div>
-          ${beat === -1 ? `${gazette(round)}${stamps(round)}` : `<div id="water-slot">${waterfall(round, beat)}</div>`}
+          <div id="hud-slot">${beat === -1 ? hud({ snapshot, since: round.opening, title: `End of Q${index + 1}`, compact: true }) : hud({ snapshot, change, title: `Step ${beat + 1} of ${steps}` })}</div>
+          ${beat === -1 ? `${final || index === 0 ? '' : forecastLine(rounds, state)}${waterfall(round, -1)}${stamps(round)}` : `<div id="water-slot">${waterfall(round, beat)}</div>`}
         </aside>
       </div>
-      ${beat === -1 ? `<div class="report-cols">
+      ${beat === -1 ? `<div class="report-cols two">
         <section class="px-panel"><header class="px-title">${icon('clock')}<h2>What if we’d chosen…</h2></header><div id="compare-body">${compare(rounds, round, compareId)}</div></section>
         <section class="px-panel"><header class="px-title">${icon('coin')}<h2>Carries into ${final ? 'next year' : `Q${index + 2}`}</h2></header>${tickets(round, final)}<div class="lesson">${icon('star')}<p><b>Take to your next board:</b> ${esc(choice.lesson)}</p></div></section>
-        ${waterfall(round, -1)}
       </div>
       <aside class="facil facil-only"><b>${icon('info')} FACILITATOR:</b> ask who saw this coming, and whose goals took the hit. Then: ${final ? 'move to the year-end inspection.' : 'use “What if” only if there is time.'}</aside>` : ''}
     </div>`;
   }
 
+  // A running score: what the year-end inspection would say on the current course,
+  // counting what is already coming next quarter (earlier deals and outside pressure).
+  function forecastLine(rounds, state) {
+    const last = rounds.at(-1), next = quarters[last.index + 1], snap = E.project(last).snapshot;
+    // Add the projected next quarter (with a choice that adds no running cost), so
+    // "left broken two quarters" and knock-ons count just as they will for real.
+    const ghost = { index: last.index + 1, opening: last.closing, closing: snap, entries: [], upcoming: [], breaches: [], minute: { choice: next.options.find(o => !o.recurring)?.id ?? next.options[0].id } };
+    const v = E.verdict([...rounds, ghost], state.seats), left = quarters.length - rounds.length;
+    const atRisk = rules.redLines.filter(l => last.closing[l.metric] >= l.min && snap[l.metric] < l.min);
+    const still = rules.redLines.filter(l => last.closing[l.metric] < l.min && snap[l.metric] < l.min);
+    const warn = [
+      ...still.map(l => `${l.title.toLowerCase()} is still below its red line: Inadequate if it isn’t fixed next quarter`),
+      ...(atRisk.length ? [`${atRisk.map(l => l.title.toLowerCase()).join(' and ')} red line goes next quarter unless you act`] : []),
+    ];
+    return `<p class="stamp-line forecast level-${v.level}"><span class="stamp">ON THIS COURSE</span><span>Inspectors would rate <b>${esc(v.rating.toUpperCase())}</b>${warn.length ? ` · <b class="bad">${esc(warn.join('; '))}</b>` : ''}.<small class="forecast-note">Counts costs and knock-ons already coming · six roles’ goals ${v.average}% met · ${left} quarter${left > 1 ? 's' : ''} left</small></span></p>`;
+  }
+
   // ---------- year-end ----------
-  // Six-point "balance" chart: start (ghost) against end, on a blocky hexagon.
+  // Start-of-year against year-end for each measure: a dumbbell chart with the
+  // numbers printed, red lines marked, and the end dot coloured by status.
   function radar(rounds) {
-    const start = E.initial(), end = rounds.at(-1).closing, C = 110, R = 84;
-    const norm = (id, v) => id === 'budget' ? Math.max(0, Math.min(100, 70 + v / 100)) : v;
-    const pt = (i, r) => { const a = -Math.PI / 2 + i * Math.PI / 3; return [Math.round(C + Math.cos(a) * r), Math.round(C + Math.sin(a) * r)]; };
-    const poly = snap => metrics.map((m, i) => pt(i, R * norm(m.id, snap[m.id]) / 100).join(',')).join(' ');
-    const rings = [25, 50, 75, 100].map(level => `<polygon points="${metrics.map((_, i) => pt(i, R * level / 100).join(',')).join(' ')}" class="ring"/>`).join('');
-    const labels = metrics.map((m, i) => { const [x, y] = pt(i, R + 18); return `<text x="${x}" y="${y + 4}" text-anchor="middle">${m.label}</text>`; }).join('');
-    return `<svg class="radar" viewBox="-10 -6 240 232" shape-rendering="crispEdges" role="img" aria-label="Start of year compared with year-end across the six measures">${rings}
-      <polygon points="${poly(start)}" class="start"/><polygon points="${poly(end)}" class="end"/>${labels}</svg>`;
+    const start = E.initial(), end = rounds.at(-1).closing;
+    const scale = id => id === 'budget' ? v => Math.max(0, Math.min(100, (v + 6000) / 70)) : v => Math.max(0, Math.min(100, v));
+    return `<ul class="dumbbells" aria-label="Start of year compared with year-end">${metrics.map(m => {
+      const f = scale(m.id), a = f(start[m.id]), b = f(end[m.id]), red = line(m.id), c = end[m.id] - start[m.id];
+      const band = E.band(m.id, end[m.id]);
+      return `<li><span class="db-name">${icon(m.icon)}${m.label}</span><span class="db-track">${red ? `<i class="db-red" style="left:${f(red.min).toFixed(1)}%"></i>` : ''}
+        <i class="db-span ${tone(c)}" style="left:${Math.min(a, b).toFixed(1)}%;width:${Math.abs(b - a).toFixed(1)}%"></i><i class="db-start" style="left:${a.toFixed(1)}%"></i><i class="db-end ${band}" style="left:${b.toFixed(1)}%"></i></span>
+        <span class="db-nums">${value(m.id, start[m.id])} → <b class="${tone(c)}">${value(m.id, end[m.id])}</b></span></li>`;
+    }).join('')}</ul>`;
   }
   function journey(rounds) {
     const cols = ['Start', 'Q1', 'Q2', 'Q3', 'Q4'];
@@ -464,7 +529,7 @@ Northbrook.views = (() => {
           <div class="big-stamp level-${result.level}"><span>RATED</span><b>${result.rating.toUpperCase()}</b></div>
           <h1>${esc(result.headline.title)}</h1><p>${esc(result.headline.sentence)}</p></div>`)}
         <aside class="px-panel ins-side"><header class="px-title">${icon('star')}<h2>How balanced was the year?</h2></header>${radar(rounds)}
-          <p class="px-foot"><span class="key ghost"></span>start <span class="key teal"></span>year-end</p>
+          <p class="px-foot"><span class="key ring"></span>start of year <span class="key teal"></span>year-end, coloured by status <span class="key red"></span>red line</p>
           <div class="badges">${lines.map(item => `<span class="badge ${item.met ? 'held' : 'broken'}">${icon(item.met ? 'check' : 'flag')}<b>${esc(item.title)}</b>${item.met ? 'held' : `broke Q${item.breachedIn}`}</span>`).join('')}
             <span class="badge grip">${icon('star')}<b>Grip</b>${calls}/4 calls · ${owners}/4 owners</span></div>
           ${result.breached.length ? `<p class="px-foot">${icon('flag')} A broken red line caps the rating at Requires improvement. Two lines, or one left broken for two quarters: Inadequate.</p>` : ''}</aside>
@@ -487,19 +552,31 @@ Northbrook.views = (() => {
     </div>`;
   }
 
+  const knockOnsAhead = round => E.project(round ?? { index: -1, closing: E.initial(), upcoming: [] }).steps.filter(step => step.kind === 'system');
+
   // ---------- dialogs ----------
   function boardPack(index, rounds) {
     const q = quarters[index], previous = rounds.at(-1), position = previous?.closing ?? E.initial();
-    const committed = previous ? E.forecast(previous) - position.budget : 0;
+    const dueAgreed = (previous?.upcoming ?? []).reduce((sum, item) => sum + (item.effects.budget || 0), 0), duePressure = q.headwind.budget || 0;
+    const laterAgreed = previous ? E.forecast(previous) - position.budget - dueAgreed : 0;
     return `${close()}<div class="kicker">Q${index + 1} BOARD PACK · CONFIDENTIAL</div><h2 id="dialog-title">${esc(q.short)}</h2><p class="sub">${esc(q.brief)}</p>
       <div class="pack">
         <section><h3>${icon('file')} The evidence</h3>${q.evidence.map(item => `<div class="intel-card"><b>${esc(item.value)}</b><span>${esc(item.label)}</span><p>${esc(item.detail)}</p></div>`).join('')}</section>
         <section><h3>${icon('alert')} Coming anyway: ${esc(q.pressure.toLowerCase())}</h3><div class="chips">${chips(q.headwind)}</div>
+          ${knockOnsAhead(previous).map(k => `<h3>${icon('alert')} Knock-on about to fire: ${esc(k.label.toLowerCase())}</h3><div class="chips">${chips(k.effects)}</div>`).join('')}
           ${previous?.upcoming.length ? `<h3>${icon('coin')} Already agreed</h3>${tickets(previous, false)}` : ''}
           <h3>${icon('coin')} The money</h3><div class="inv-line"><span>Plan</span><b>£0 (break even)</b></div><div class="inv-line"><span>Now</span><b>${value('budget', position.budget)}</b></div>
-          ${committed ? `<div class="inv-line"><span>Already committed</span><b class="bad">${delta('budget', committed)}</b></div><div class="inv-line total"><span>Forecast</span><b>${value('budget', position.budget + committed)}</b></div>` : ''}
+          ${dueAgreed ? `<div class="inv-line"><span>Agreed earlier, due this quarter</span><b class="bad">${delta('budget', dueAgreed)}</b></div>` : ''}
+          ${duePressure ? `<div class="inv-line"><span>Outside pressure this quarter</span><b class="bad">${delta('budget', duePressure)}</b></div>` : ''}
+          <div class="inv-line total"><span>Before your decision</span><b>${value('budget', position.budget + dueAgreed + duePressure)}</b></div>
+          ${laterAgreed ? `<div class="inv-line"><span>Agreed for later quarters</span><b class="bad">${delta('budget', laterAgreed)}</b></div>` : ''}
           <div class="inv-line"><span>Red line</span><b class="bad">${value('budget', line('budget').min)}</b></div></section>
-      </div>`;
+      </div>
+      <section class="perf"><h3>${icon('star')} Performance report: what the numbers mean in real life</h3>
+        <table class="perf-table"><thead><tr><th scope="col">Measure</th><th scope="col">Score</th><th scope="col">Status</th><th scope="col">Northbrook equivalent</th><th scope="col">For comparison</th></tr></thead><tbody>
+        ${metrics.filter(m => m.real).map(m => { const v = position[m.id], r = realWorld(m.id, v), b = E.band(m.id, v);
+          return `<tr><th scope="row">${icon(m.icon)} ${m.label}</th><td class="num">${v}</td><td><span class="band-word ${b}">${bandLabel[b]}</span></td><td><b>${r.value}</b> ${esc(r.label)}</td><td class="dim">${esc(r.standard)}</td></tr>`; }).join('')}
+        </tbody></table><p class="px-foot">Illustrative: the game turns each 0–100 score into a figure a real board report would show, so you can see what a 5-point drop means.</p></section>`;
   }
 
   function journal(rounds, seats) {
@@ -520,7 +597,8 @@ Northbrook.views = (() => {
       <p>Each seat has three goals: a big one (■■■), a never-below line (■■) and one that belongs to a colleague (■). A seat is satisfied when it meets its big goal and at least one other. Faces: ☺ on track, ~ worried, ! a goal is lost for good. Money goals count costs already committed.</p>
       <div class="role-help">${roles.map(role => `<div><canvas data-portrait="${role.id}" width="24" height="24" aria-hidden="true"></canvas><p><b>${esc(role.label)}.</b> ${esc(role.prompt)}</p></div>`).join('')}</div>
       <h3>Knock-on effects</h3><ul>${rules.knockOns.map(rule => `<li>${metricById(rule.metric).label} below ${rule.metric === 'budget' ? value('budget', rule.below) : rule.below}: ${esc(rule.label.toLowerCase())} (${effectText(rule.effects)}).</li>`).join('')}</ul>
-      <h3>The measures</h3><dl>${metrics.map(m => `<dt>${icon(m.icon)} ${m.label}</dt><dd>${esc(m.plain)}</dd>`).join('')}</dl></div>`;
+      <h3>The measures</h3><dl>${metrics.map(m => `<dt>${icon(m.icon)} ${m.label}</dt><dd>${esc(m.plain)}${m.real ? ` In real life: ${esc(m.real.label)} (${esc(m.real.standard)}).` : ''}</dd>`).join('')}</dl>
+      <h3>Keyboard shortcuts (for whoever drives)</h3><p><b>A–D</b> pick a proposal · <b>Enter</b> lock it in · in the lock-in, <b>1–5</b> pick the bar and <b>Q–Y</b> the reviewer · <b>→</b> next step · <b>←</b> back · <b>S</b> skip to the quarter end · <b>N</b> or <b>Enter</b> on to the next quarter · <b>F</b> facilitator mode.</p></div>`;
   }
   const glossaryDialog = () => `${close()}<div class="kicker">WORD LIST</div><h2 id="dialog-title">Words you’ll see</h2><dl class="prose">${glossary.map(([t, m]) => `<dt>${esc(t)}</dt><dd>${esc(m)}</dd>`).join('')}</dl>`;
 
@@ -530,7 +608,8 @@ Northbrook.views = (() => {
       <ol><li><b>Before:</b> project the game, print the role cards, and turn on <b>Facilitator</b> in the top bar: each quarter then shows your prompt and a timer.</li>
         <li><b>Seats:</b> one per student. One person drives; everyone argues. Tap a seat to read its goals aloud.</li>
         ${quarters.map((q, i) => `<li><b>Q${i + 1} · ${esc(q.short)} (${facilitator.quarters[i].minutes} min):</b> ${esc(facilitator.quarters[i].ask)} <em>${esc(facilitator.quarters[i].watch)}</em></li>`).join('')}
-        <li><b>Running late?</b> Press SKIP in the replay and save “What if…” for the year-end.</li>
+        <li><b>Running late?</b> Press SKIP (or S) in the replay and save “What if…” for the year-end.</li>
+        <li><b>Keys for the driver:</b> A–D pick · Enter lock in · in the lock-in 1–5 pick the bar, Q–Y the reviewer, Enter confirm · → next step · ← back · S skip · N or Enter on to the next quarter · F facilitator mode.</li>
         <li><b>Year-end (8 min):</b> ${esc(facilitator.debrief)}</li></ol></div>
       <div class="modal-actions">${button('print-cards', `${icon('print')} Print role cards`, 'ghost')}${button('facilitator-toggle', 'TURN ON FACILITATOR MODE', 'gold')}</div>`;
   }

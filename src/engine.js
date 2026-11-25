@@ -204,7 +204,22 @@ Northbrook.engine = (() => {
     return { now: choice.effects.budget || 0, later, recurring: choice.recurring || 0 };
   }
 
+  // Display-only projection of the next quarter's opening, before any decision:
+  // what earlier deals, the next quarter's outside pressure and any knock-on effects
+  // that would then fire will do. The game uses it for the striped "pressure already
+  // coming" and for the "On this course" rating. It never feeds the scoring model.
+  function project(round) {
+    const next = quarters[round.index + 1], snap = { ...round.closing }, steps = [];
+    const add = (kind, label, effects) => { for (const [id, c] of Object.entries(effects)) snap[id] = cap(id, (snap[id] ?? 0) + c); steps.push({ kind, label, effects }); };
+    for (const item of round.upcoming) add(item.kind, item.title, item.effects);
+    if (next) add('headwind', next.pressure, next.headwind);
+    for (const rule of rules.knockOns) if (snap[rule.metric] < rule.below) add('system', rule.label, rule.effects);
+    return { snapshot: snap, steps };
+  }
+
   function band(metricId, amount) {
+    const red = rules.redLines.find(line => line.metric === metricId);
+    if (red && amount < red.min) return 'critical';
     if (metricId === 'budget') return amount >= 0 ? 'strong' : amount >= -2000 ? 'stable' : amount >= rules.financeWarning ? 'watch' : amount >= rules.redLines[2].min ? 'concern' : 'critical';
     return amount >= 75 ? 'strong' : amount >= 62 ? 'stable' : amount >= 52 ? 'watch' : amount >= 42 ? 'concern' : 'critical';
   }
@@ -227,7 +242,7 @@ Northbrook.engine = (() => {
     return questions[kind].map((question, index) => ({ ...question, answer: answers[index], passed: answers[index] === question.correct }));
   }
 
-  return { initial, resolve, history, counterfactual, prediction, rightOwner, ownerFor, forecast, recurring, redLines, objectiveValue,
+  return { initial, resolve, history, counterfactual, prediction, rightOwner, ownerFor, forecast, project, recurring, redLines, objectiveValue,
     scoreRole, describe, verdict, stances, cost, band, order, assess, optionFor, metricById };
 })();
 

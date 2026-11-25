@@ -29,11 +29,16 @@ Northbrook.content = (() => {
 
   const metrics = [
     { id: 'budget', label: 'Money', icon: 'finance', start: 0, plain: 'Position against a break-even plan. Below £0 is a deficit: spending more than the trust receives.' },
-    { id: 'access', label: 'Access', icon: 'access', start: 52, plain: 'How quickly patients are seen and treated. Low access means long waits.' },
-    { id: 'safety', label: 'Safety', icon: 'safety', start: 66, plain: 'How safe care is: enough checks, staff and space to avoid harm.' },
-    { id: 'staff', label: 'Workforce', icon: 'staff', start: 60, plain: 'Whether staff can keep going: rest, cover and morale.' },
-    { id: 'experience', label: 'Experience', icon: 'experience', start: 60, plain: 'How patients and families feel about their care.' },
-    { id: 'trust', label: 'Confidence', icon: 'trust', start: 60, plain: 'How much the public, regulators and partners trust the board.' },
+    { id: 'access', label: 'Access', icon: 'access', start: 52, plain: 'How quickly patients are seen and treated. Low access means long waits.',
+      real: { label: 'A&E patients seen within 4 hours', short: 'seen in 4 hrs at A&E', unit: '%', base: 40, slope: 0.6, standard: 'NHS standard 78%' } },
+    { id: 'safety', label: 'Safety', icon: 'safety', start: 66, plain: 'How safe care is: enough checks, staff and space to avoid harm.',
+      real: { label: 'patients receiving harm-free care', short: 'harm-free care', unit: '%', base: 80, slope: 0.2, standard: 'most trusts 93–96%' } },
+    { id: 'staff', label: 'Workforce', icon: 'staff', start: 60, plain: 'Whether staff can keep going: rest, cover and morale.',
+      real: { label: 'staff off sick across the trust on a typical day', short: 'off sick, trust-wide', unit: '%', base: 14, slope: -0.12, standard: 'NHS average about 5%' } },
+    { id: 'experience', label: 'Experience', icon: 'experience', start: 60, plain: 'How patients and families feel about their care.',
+      real: { label: 'patients who would recommend the ward (Friends and Family Test)', short: 'would recommend us', unit: '%', base: 62, slope: 0.45, standard: 'NHS average about 94%' } },
+    { id: 'trust', label: 'Confidence', icon: 'trust', start: 60, plain: 'How much the public, regulators and partners trust the board.',
+      real: { label: 'formal complaints a month', short: 'complaints a month', unit: '', base: 96, slope: -0.9, standard: 'a typical trust our size: about 35' } },
   ];
 
   // Six board roles. Objectives are weighted 3/2/1: a headline target, a
@@ -146,6 +151,8 @@ Northbrook.content = (() => {
     },
     {
       id: 'capacity', season: 'July–September', short: 'No beds', zone: 'flow', dressing: 'trolleys',
+      // What last quarter's choice set in motion, keyed by that choice.
+      after: { agency: 'The agency contract runs on, and the invoices are landing.', pause: 'The operations you paused are piling up behind the bug.', discharge: 'Senior nurses are tired after weeks of extra discharge checks.', divert: 'The hospital next door wants to stop taking your ambulances.' },
       title: 'The beds won’t empty.',
       summary: 'Patients who are well enough to leave are stuck waiting for care at home. Trolleys are queuing in the corridor.',
       brief: 'Create real capacity without stretching the staff past what is safe.',
@@ -192,6 +199,7 @@ Northbrook.content = (() => {
     },
     {
       id: 'confidence', season: 'October–December', short: 'In the news', zone: 'front', dressing: 'press',
+      after: { cancel: 'Patients whose operations were cancelled went to the local paper.', partner: 'The care-at-home packages are only just starting.', virtual: 'Families on the virtual ward are telling friends it works.', beds: 'Nurses say the extra beds are stretching them thin.' },
       title: 'The story breaks.',
       summary: 'A local news crew is outside after patients described long waits. Staff want the board to admit what went wrong and only promise what it can deliver.',
       brief: 'Be honest, protect patients’ privacy, and keep the recovery work going.',
@@ -234,6 +242,7 @@ Northbrook.content = (() => {
     },
     {
       id: 'winter', season: 'January–March', short: 'Winter surge', zone: 'arrival', dressing: 'winter',
+      after: { statement: 'Families still say nobody is listening.', briefing: 'The cameras are back to check the board kept its word.', listen: 'The patient panel wants to see changes before the spring.', plan: 'The recovery plan’s weekly scorecard is now public.' },
       title: 'One last surge.',
       summary: 'Snow and flu are sending more ambulances. Six shifts are still empty and this is the board’s last decision of the year.',
       brief: 'Get through winter safely and hand next year’s board something it can live with.',
@@ -337,7 +346,7 @@ Northbrook.content = (() => {
     timing: 'Plan 45 minutes for a group: 5 to choose roles, about 8 per quarter, 8 for the year-end. A solo player takes about 15.',
     quarters: [
       { ask: 'Staff or money? Agency nurses protect tired staff but cost twice as much. Who wins this quarter, and why?',
-        watch: 'If they pick agency, point at “Already committed” next quarter. If they don’t, ask the MD what happens to safety.', minutes: 9 },
+        watch: 'If they pick agency, point at “Already agreed” in the board pack next quarter. If they don’t, ask the MD what happens to safety.', minutes: 9 },
       { ask: 'Are we short of beds, staff, or a way home? Point to one piece of evidence on screen.',
         watch: 'Extra beds look obvious. Ask “who staffs them?”, then show the knock-on step in the replay.', minutes: 8 },
       { ask: 'What can we say today that we will still stand behind in three months?',

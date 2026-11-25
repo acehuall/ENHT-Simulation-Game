@@ -47,8 +47,8 @@ Northbrook.pixel = (() => {
   // Room labels drawn as HTML by the views: [text, tileX, tileY, important].
   const LABELS = [
     ['Ward 1', 8, 3.4], ['Staff room', 23.5, 4.6], ['Canteen', 27.5, 3.4], ['Reception', 14.5, 7.3, true],
-    ['Wards 2–4', 5, 9.9, true], ['Discharge', 11.5, 12.6, true], ['A&E', 19.5, 9.9, true], ['Theatres', 27.5, 9.9, true],
-    ['Office', 10.9, 9.9], ['Entrance', 15, 15.5, true],
+    ['Wards 2–4', 5, 10.7, true], ['Discharge', 11.5, 13.4, true], ['A&E', 19.5, 10.7, true], ['Theatres', 27.5, 10.7, true],
+    ['Office', 10.9, 10.6], ['Entrance', 15, 15.5, true],
   ];
   const ZONES = {
     ward: { x: 7, y: 10, w: 2, h: 6 }, flow: { x: 10, y: 13, w: 3, h: 3 },

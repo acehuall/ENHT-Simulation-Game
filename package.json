@@ -1,12 +1,13 @@
 {
   "name": "trust-in-balance",
-  "version": "3.0.0",
+  "version": "6.0.0",
   "private": true,
   "description": "Trust in Balance: an offline NHS hospital board game for work experience and team workshops",
   "scripts": {
     "test": "node --test tests/engine.test.cjs",
     "test:browser": "node tests/browser.cjs",
-    "balance": "node tools/balance.cjs"
+    "balance": "node tools/balance.cjs",
+    "test:e2e": "node tests/e2e-routes.cjs"
   },
   "devDependencies": {
     "playwright": "1.62.1"
